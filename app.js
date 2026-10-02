@@ -84,6 +84,8 @@ const ICONE = {
   storico: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   attenzione: '<path d="M12 3 2 20h20z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>',
   lente: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/>',
+  excel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+  grafico: '<path d="M3 20h18"/><rect x="5" y="11" width="3" height="7" rx="1"/><rect x="10.5" y="6" width="3" height="12" rx="1"/><rect x="16" y="9" width="3" height="9" rx="1"/>',
 };
 
 /* ---------------------------------------------------------------------------
@@ -576,6 +578,9 @@ function disegna() {
   const testata = h('header', { class: 'testata' },
     h('div', { class: 'riga1' }, logo(),
       h('div', { class: 'titolo' }, h('b', null, titolo), h('small', { id: 'aggiornato' }, testoAggiornato())),
+      !sub && !TELEFONO ? h('button', { class: 'aiuto vai-avanzamento', title: 'Apri l’Avanzamento produzione',
+        onclick: () => window.open(CFG.avanzamentoUrl || 'http://PRODUZIONE-DESK:8090/', 'avanzamento-produzione') },
+        ico('grafico'), h('span', null, 'Avanzamento')) : null,
       h('button', { class: 'aiuto', onclick: apriMenu, 'aria-label': sub ? 'Aiuto' : 'Menu' }, ico(sub ? 'aiuto' : 'menu'), sub ? 'Aiuto' : 'Menu')),
     h('nav', { class: 'schede' + (sub ? ' larghe' : ''), role: 'tablist' },
       viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), 'data-vista': v, onclick: () => vai(v) },
@@ -661,7 +666,7 @@ function testiCarico(r) {
     S.io === 'admin' ? nomeSub(r.sub_id) : null, numeriBolle(r)];
 }
 
-const numeriBolle = r => (r.bolle || []).map(b => b.b).join(' ');
+const numeriBolle = r => (r.bolle || []).concat(r.riconsegnate || []).map(b => b.b).join(' ');
 
 function boxCerca(aggiorna) {
   const x = h('button', { class: 'cerca-x' + (S.cerca ? '' : ' nascosto'), type: 'button', 'aria-label': 'Cancella la ricerca' }, '×');
@@ -729,8 +734,16 @@ function disegnaRighe() {
   const totAperte = elenco.reduce((t, x) => t + x.r.aperte, 0);
   const nNuove = elenco.filter(x => x.s.nuovo).length;
   const nRitardo = elenco.filter(x => x.s.ritardo).length;
+  const excelRighe = () => scaricaExcel(nomeExcel(S.archivio ? 'Archivio' : 'Righe'), [{
+    nome: S.archivio ? 'Archivio' : 'Righe',
+    colonne: ['Sub', 'Commessa', 'Modello', 'Parte', 'Descrizione', 'Stagione', 'Lanciata', 'Scadenza', 'Aperte',
+      'Nota', 'Nota inviata', 'Risposta', 'Risposta inviata', 'Data prevista', 'In ritardo', 'Bollette in casa', 'Bollette riconsegnate'],
+    righe: voci.filter(visibile).map(({ x: { r, s } }) => [nomeSub(r.sub_id), r.commessa, r.modello, r.parte, r.descrizione, r.stagione,
+      r.lanciata, dataX(r.scadenza), r.aperte, s.nota && s.nota.testo, s.nota && fmtQuando(s.nota.inviata_il),
+      s.risposta && s.risposta.testo, s.risposta && fmtQuando(s.risposta.inviata_il), dataX(s.dataEff), s.ritardo ? 'Sì' : '',
+      testoBolle(r.bolle, 'dal', 'dal'), testoBolle(r.riconsegnate, 'il', 'il')]) }]);
   const intest = h('div', { class: 'intestazione' },
-    h('h2', null, S.archivio ? 'Archivio' : 'Righe'),
+    h('h2', null, S.archivio ? 'Archivio' : 'Righe'), elenco.length ? tastoExcel(excelRighe) : null,
     h('p', null, S.archivio
       ? elenco.length + ' commesse chiuse con note'
       : elenco.length + ' commesse in casa · ' + pz(totAperte) + ' pezzi aperti'
@@ -740,7 +753,7 @@ function disegnaRighe() {
   const testa = ['Commessa', conSub ? 'Sub' : null, 'Modello', 'Parte', 'Descrizione', 'Stagione', 'Lanciata', 'Scadenza', 'Aperte', 'Nota', 'Risposta', 'Data prevista']
     .filter(Boolean);
   const numeriche = new Set(['Lanciata', 'Aperte']);
-  const voci = elenco.map(x => ({ el: rigaRighe(x.r, x.s, conSub), testi: testiRiga(x.r, x.s) }));
+  const voci = elenco.map(x => ({ el: rigaRighe(x.r, x.s, conSub), testi: testiRiga(x.r, x.s), x }));
   const tabella = h('div', { class: 'tabella-box' }, h('table', { class: 't' },
     h('thead', null, h('tr', null, testa.map(t => h('th', { class: numeriche.has(t) ? 'num' : null }, t)))),
     h('tbody', null, voci.map(v => v.el))));
@@ -825,6 +838,7 @@ function schedaRiga(r, s) {
       numero('Commessa', pz(r.lanciata) + ' pz'),
       numero('Scadenza', fmtData(r.scadenza) || '—')),
     bolletteInCasa(r),
+    bolletteRiconsegnate(r),
     s.nota && s.nota.testo
       ? h('div', { class: 'bolla' }, h('div', { class: 'chi' }, ico('note'), 'L’ufficio ti scrive · ' + fmtQuando(s.nota.inviata_il)), h('div', { class: 'testo-nota' }, s.nota.testo))
       : h('div', { class: 'bolla vuota' }, 'Nessuna nota dall’ufficio su questa commessa.'),
@@ -852,7 +866,7 @@ function rigaRighe(r, s, conSub) {
     h('div', null, h('span', { class: 'cod' }, r.commessa), ' ',
       r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null),
     etichette.length ? h('div', { style: 'margin-top:4px;display:flex;gap:6px;flex-wrap:wrap' }, etichette) : null,
-    bolletteInCasa(r, true),
+    bolletteInCasa(r, true), bolletteRiconsegnate(r, true),
     h('button', { class: 'link', style: 'font-size:13px', onclick: () => apriStorico(r) }, 'Storico'));
 
   // Nota (scrive l'Admin)
@@ -1027,11 +1041,11 @@ async function vistaCarico() {
   const conSub = S.subSel === '*';
   const testa = ['Commessa', conSub ? 'Sub' : null, 'Modello', 'Descrizione', 'Scadenza', 'Lanciata', 'Aperte', 'In arrivo', 'Chiuse', 'Rimaste', 'Stato'].filter(Boolean);
   const num = new Set(['Lanciata', 'Aperte', 'In arrivo', 'Chiuse', 'Rimaste']);
-  const voci = elenco.map(r => ({ testi: testiCarico(r), el: h('tr', null,
+  const voci = elenco.map(r => ({ r, testi: testiCarico(r), el: h('tr', null,
       h('td', { class: 'testa', 'data-l': 'Commessa' },
         h('span', { class: 'cod' }, r.commessa), ' ',
         r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null,
-        bolletteInCasa(r, true),
+        bolletteInCasa(r, true), bolletteRiconsegnate(r, true),
         dettaglioCarico(r)),
       conSub ? h('td', { 'data-l': 'Sub' }, nomeSub(r.sub_id)) : null,
       h('td', { 'data-l': 'Modello' }, [r.modello, r.parte].filter(Boolean).join(' ')),
@@ -1049,7 +1063,14 @@ async function vistaCarico() {
   const ricerca = ricercaSu(voci, tabella);
   riempi(corpo(),
     filtroSub(() => vistaCarico().catch(e => gestisciErrore(e, 'carico'))),
-    h('div', { class: 'intestazione' }, h('h2', null, 'Carico'),
+    h('div', { class: 'intestazione' }, h('h2', null, 'Carico'), elenco.length ? tastoExcel(() => scaricaExcel(nomeExcel('Carico'), [{
+      nome: 'Carico',
+      colonne: ['Sub', 'Commessa', 'Modello', 'Parte', 'Descrizione', 'Stagione', 'Scadenza', 'Lanciata', 'Aperte', 'In arrivo',
+        'Chiuse', 'Rimaste', 'Stato', 'Bollette in casa', 'Bollette riconsegnate', 'Pezzi in arrivo, ora in'],
+      righe: voci.filter(visibile).map(({ r }) => [nomeSub(r.sub_id), r.commessa, r.modello, r.parte, r.descrizione, r.stagione,
+        dataX(r.scadenza), r.lanciata, r.aperte, r.in_arrivo, r.chiuse, r.rimaste, STATI[r.stato] || '',
+        testoBolle(r.bolle, 'dal', 'dal'), testoBolle(r.riconsegnate, 'il', 'il'),
+        (r.monte || []).map(m => (m.d || '').toLowerCase() + ' ' + m.pz + ' pz').join('; ')]) }])) : null,
       h('p', null, elenco.length + ' commesse · in casa ' + pz(tot('aperte')) + ' pz · in arrivo ' + pz(tot('in_arrivo')) + ' pz · rimaste ' + pz(tot('rimaste')) + ' pz')),
     elenco.length ? [ricerca.casella, ricerca.trovate, tabella, ricerca.niente] : h('div', { class: 'vuoto' }, 'Nessuna commessa assegnata.'));
   ricerca.aggiorna();
@@ -1068,6 +1089,7 @@ function disegnaCaricoSub(elenco, tot) {
       numero('Già consegnati', pz(r.chiuse) + ' pz'),
       numero('Scadenza', fmtData(r.scadenza) || '—')),
     bolletteInCasa(r),
+    bolletteRiconsegnate(r),
     dettaglioCarico(r),
     r.diba ? h('div', { class: 'piedino' }, h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base')) : null) }));
   const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
@@ -1089,26 +1111,154 @@ function dettaglioCarico(r) {
     h('ul', null, monte.map(m => h('li', null, (m.d || '').toLowerCase() + ': ' + pz(m.pz) + ' pz'))));
 }
 
-/* Le bollette che il Sub ha in casa per questa commessa (numero, pezzi, da
-   quando). compatte: per le tabelle dell'Admin. Le altre (oltre 6, o 3 su telefono e tabelle)
-   si aprono a richiesta. */
-function bolletteInCasa(r, compatte) {
-  const bolle = r.bolle || [];
-  if (!bolle.length) return null;
-  const voce = b => h('span', { class: 'bolletta', title: [b.dal ? 'In casa dal ' + fmtData(b.dal) : null,
-      (b.fasi || []).map(f => f.d).filter(Boolean).join(', ')].filter(Boolean).join(' · ') || null },
-    h('b', null, (compatte ? '' : 'n. ') + b.b), ' · ' + pz(b.q) + ' pz' + (!compatte && b.dal ? ' · dal ' + fmtData(b.dal).slice(0, 5) : ''));
+/* Bollette di una commessa: quelle che il Sub ha in casa (numero, pezzi, da
+   quando) e quelle gia' riconsegnate (numero, pezzi, quando). compatte: per le
+   tabelle dell'Admin. Le altre (oltre 6, o 3 su telefono e tabelle) si aprono
+   a richiesta. */
+function elencoBollette(lista, compatte, o) {
+  if (!lista || !lista.length) return null;
+  const voce = b => h('span', { class: 'bolletta' + (o.classe ? ' ' + o.classe : ''), title: o.dettaglio(b) || null },
+    h('b', null, (compatte ? '' : 'n. ') + b.b), ' · ' + pz(b.q) + ' pz' + (!compatte && o.quando(b) ? ' · ' + o.quando(b) : ''));
   const MAX = TELEFONO || compatte ? 3 : 6;       // sul telefono e nelle tabelle ogni bolletta prende una riga
-  const elenco = h('div', { class: 'bollette-el' }, bolle.slice(0, MAX).map(voce));
-  if (bolle.length > MAX) {
-    const altre = h('button', { class: 'link', type: 'button', onclick: () => { altre.replaceWith(...bolle.slice(MAX).map(voce)); } },
-      '+ altre ' + (bolle.length - MAX));
+  const elenco = h('div', { class: 'bollette-el' }, lista.slice(0, MAX).map(voce));
+  if (lista.length > MAX) {
+    const altre = h('button', { class: 'link', type: 'button', onclick: () => { altre.replaceWith(...lista.slice(MAX).map(voce)); } },
+      '+ altre ' + (lista.length - MAX));
     elenco.append(altre);
   }
-  return h('div', { class: 'bollette' + (compatte ? ' compatte' : '') },
-    h('span', { class: 'bollette-tit' }, ico('documento'), compatte ? (bolle.length === 1 ? 'Bolletta' : 'Bollette')
-      : (bolle.length === 1 ? 'Bolletta in casa' : bolle.length + ' bollette in casa')),
-    elenco);
+  return h('div', { class: 'bollette' + (compatte ? ' compatte' : '') + (o.classe ? ' ' + o.classe : '') },
+    h('span', { class: 'bollette-tit' }, ico(o.icona), o.titolo(lista.length, compatte)), elenco);
+}
+
+function bolletteInCasa(r, compatte) {
+  return elencoBollette(r.bolle, compatte, { icona: 'documento',
+    titolo: (n, c) => c ? (n === 1 ? 'Bolletta' : 'Bollette') : (n === 1 ? 'Bolletta in casa' : n + ' bollette in casa'),
+    quando: b => b.dal ? 'dal ' + fmtData(b.dal).slice(0, 5) : '',
+    dettaglio: b => [b.dal ? 'In casa dal ' + fmtData(b.dal) : null, (b.fasi || []).map(f => f.d).filter(Boolean).join(', ')].filter(Boolean).join(' · ') });
+}
+
+function bolletteRiconsegnate(r, compatte) {
+  return elencoBollette(r.riconsegnate, compatte, { classe: 'riconsegnata', icona: 'fatto',
+    titolo: (n, c) => c ? 'Riconsegnate' : (n === 1 ? 'Bolletta già riconsegnata' : n + ' bollette già riconsegnate'),
+    quando: b => b.il ? 'il ' + fmtData(b.il).slice(0, 5) : '',
+    dettaglio: b => b.il ? 'Riconsegnata il ' + fmtData(b.il) : '' });
+}
+
+const testoBolle = (lista, parola, campo) => (lista || []).map(b =>
+  b.b + ' (' + b.q + ' pz' + (b[campo] ? ' ' + parola + ' ' + fmtData(b[campo]) : '') + ')').join('; ');
+
+/* ---------------------------------------------------------------------------
+   Excel: un vero file .xlsx fatto qui dentro, senza librerie (e' uno zip di
+   file XML). fogli: [{ nome, colonne: [titoli], righe: [[valori]] }]; i valori
+   possono essere numeri, testi, date (oggetti Date) o vuoti.
+   --------------------------------------------------------------------------- */
+
+const _crc = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = _crc[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+
+function zip(file) {          // file: [{ nome, dati: Uint8Array }] -> Blob, senza compressione
+  const enc = new TextEncoder(), parti = [], centrale = [];
+  let pos = 0;
+  for (const f of file) {
+    const nome = enc.encode(f.nome), crc = crc32(f.dati), n = f.dati.length;
+    const loc = new DataView(new ArrayBuffer(30));
+    loc.setUint32(0, 0x04034b50, true); loc.setUint16(4, 20, true); loc.setUint16(6, 0x0800, true);
+    loc.setUint16(12, 0x21, true); loc.setUint32(14, crc, true); loc.setUint32(18, n, true); loc.setUint32(22, n, true);
+    loc.setUint16(26, nome.length, true);
+    parti.push(loc, nome, f.dati);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true);
+    cen.setUint16(14, 0x21, true); cen.setUint32(16, crc, true); cen.setUint32(20, n, true); cen.setUint32(24, n, true);
+    cen.setUint16(28, nome.length, true); cen.setUint32(42, pos, true);
+    centrale.push(cen, nome);
+    pos += 30 + nome.length + n;
+  }
+  const dimC = centrale.reduce((t, x) => t + x.byteLength, 0);
+  const fine = new DataView(new ArrayBuffer(22));
+  fine.setUint32(0, 0x06054b50, true); fine.setUint16(8, file.length, true); fine.setUint16(10, file.length, true);
+  fine.setUint32(12, dimC, true); fine.setUint32(16, pos, true);
+  return new Blob([...parti, ...centrale, fine], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+const xmlEsc = t => String(t).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function lettereColonna(i) { let t = ''; i++; while (i) { const m = (i - 1) % 26; t = String.fromCharCode(65 + m) + t; i = Math.floor((i - 1) / 26); } return t; }
+const serialeExcel = d => (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(1899, 11, 30)) / 86400000;
+const dataX = t => t ? daIso(String(t).slice(0, 10)) : null;
+
+function foglioXml(f) {
+  const tutte = [f.colonne].concat(f.righe);
+  const largh = f.colonne.map((c, i) => Math.min(60, Math.max(8, ...tutte.map(r => r[i] == null ? 0 : r[i] instanceof Date ? 11 : String(r[i]).length + 2))));
+  const cella = (v, ri, ci) => {
+    const ref = lettereColonna(ci) + (ri + 1);
+    if (v == null || v === '') return '';
+    if (ri === 0) return '<c r="' + ref + '" t="inlineStr" s="1"><is><t>' + xmlEsc(v) + '</t></is></c>';
+    if (v instanceof Date) return '<c r="' + ref + '" s="2"><v>' + serialeExcel(v) + '</v></c>';
+    if (typeof v === 'number' && isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
+    return '<c r="' + ref + '" t="inlineStr" s="3"><is><t xml:space="preserve">' + xmlEsc(v) + '</t></is></c>';
+  };
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+    '<cols>' + largh.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>' +
+    '<sheetData>' + tutte.map((r, ri) => '<row r="' + (ri + 1) + '">' + r.map((v, ci) => cella(v, ri, ci)).join('') + '</row>').join('') + '</sheetData>' +
+    '<autoFilter ref="A1:' + lettereColonna(f.colonne.length - 1) + tutte.length + '"/></worksheet>';
+}
+
+function scaricaExcel(nomeFile, fogli) {
+  const enc = new TextEncoder();
+  const usati = new Set();
+  const nomi = fogli.map(f => { let n = String(f.nome).replace(/[\[\]:*?\/\\]/g, ' ').slice(0, 31) || 'Foglio'; while (usati.has(n)) n = n.slice(0, 29) + '_' + usati.size; usati.add(n); return n; });
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const testa = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const file = [
+    { nome: '[Content_Types].xml', testo: testa + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      fogli.map((f, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') + '</Types>' },
+    { nome: '_rels/.rels', testo: testa + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { nome: 'xl/workbook.xml', testo: testa + '<workbook ' + ns + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      nomi.map((n, i) => '<sheet name="' + xmlEsc(n) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') + '</sheets><definedNames>' +
+      fogli.map((f, i) => '<definedName name="_xlnm._FilterDatabase" localSheetId="' + i + '" hidden="1">\'' + xmlEsc(nomi[i]).replace(/'/g, "''") + '\'!$A$1:$' +
+        lettereColonna(f.colonne.length - 1) + '$' + (f.righe.length + 1) + '</definedName>').join('') + '</definedNames></workbook>' },
+    { nome: 'xl/_rels/workbook.xml.rels', testo: testa + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      fogli.map((f, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+      '<Relationship Id="rId' + (fogli.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+    { nome: 'xl/styles.xml', testo: testa + '<styleSheet ' + ns + '>' +
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFFDF1DC"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4">' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top"/></xf>' +
+      '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+      '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment vertical="top"/></xf>' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>' +
+      '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' },
+  ].concat(fogli.map((f, i) => ({ nome: 'xl/worksheets/sheet' + (i + 1) + '.xml', testo: foglioXml(f) })));
+  const blob = zip(file.map(f => ({ nome: f.nome, dati: enc.encode(f.testo) })));
+  const url = URL.createObjectURL(blob);
+  const a = h('a', { href: url, download: nomeFile, style: 'display:none' });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+  toast('Excel pronto: ' + nomeFile);
+  return blob;
+}
+
+// Tasto "Scarica Excel" (solo Admin): esporta le righe che si vedono (Sub scelto e ricerca).
+function tastoExcel(fai) {
+  if (S.io !== 'admin') return null;
+  return h('button', { class: 'tasto piccolo chiaro excel', type: 'button', onclick: () => {
+    try { fai(); } catch (e) { console.error(e); toast('Non sono riuscito a preparare l’Excel.'); }
+  } }, ico('excel'), 'Scarica Excel');
+}
+
+const visibile = v => !v.el.classList.contains('nascosto');
+function nomeExcel(pagina) {
+  const chi = S.subSel === '*' ? 'tutti i Sub' : nomeSub(S.subSel);
+  return ('Note Av - ' + pagina + ' - ' + chi + ' - ' + oggiIso() + '.xlsx').replace(/[\\/:*?"<>|]/g, ' ');
 }
 
 /* ---------------------------------------------------------------------------
@@ -1132,6 +1282,7 @@ async function vistaConsegne() {
 
   const blocchi = [];
   const voci = [];
+  const sintesi = [];          // per il foglio Riepilogo dell'Excel
   for (const id of ids) {
     const mie = ric.filter(x => x.sub_id === id);
     const tg = target.filter(t => t.sub_id === id && t.dal_lunedi <= iso(lun)).pop();
@@ -1154,7 +1305,10 @@ async function vistaConsegne() {
       colonne.map(g => h('td', { class: 'num' + (c.g[g] ? '' : ' vuota-m'), 'data-l': GIORNI[(daIso(g).getDay() + 6) % 7] + ' ' + fmtData(g).slice(0, 5) }, c.g[g] ? pz(c.g[g]) : '')),
       h('td', { class: 'num', 'data-l': 'Totale' }, h('b', null, pz(Object.values(c.g).reduce((a, b) => a + b, 0))))));
     [...perComm.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([com, c], i) => voci.push({
-      el: righe[i], testi: [com, c.x.modello, c.x.parte, c.x.descrizione, S.io === 'admin' ? nomeSub(id) : null] }));
+      el: righe[i], testi: [com, c.x.modello, c.x.parte, c.x.descrizione, S.io === 'admin' ? nomeSub(id) : null],
+      riga: [nomeSub(id), com, c.x.modello, c.x.parte, c.x.descrizione].concat(colonne.map(g => c.g[g] || null),
+        [Object.values(c.g).reduce((a, b) => a + b, 0)]) }));
+    sintesi.push([nomeSub(id), totale, tg ? tg.pezzi : null, tg ? totale - tg.pezzi : null]);
     const diff = tg ? totale - tg.pezzi : null;
     const cellaTarget = (S.io === 'admin' && corrente) ? campoTarget(id, tg) : h('span', null, tg ? pz(tg.pezzi) + ' pz' : 'non impostato');
     const riepilogo = h('tr', { class: 'totale' },
@@ -1181,7 +1335,12 @@ async function vistaConsegne() {
   const ricerca = ricercaSu(voci, contenitore);
   riempi(corpo(),
     filtroSub(() => vistaConsegne().catch(e => gestisciErrore(e, 'consegne'))),
-    h('div', { class: 'intestazione' }, h('h2', null, 'Consegne'),
+    h('div', { class: 'intestazione' }, h('h2', null, 'Consegne'), sintesi.length ? tastoExcel(() => scaricaExcel(
+      nomeExcel('Consegne settimana ' + settimanaIso(lun)), [
+        { nome: 'Consegne', colonne: ['Sub', 'Commessa', 'Modello', 'Parte', 'Descrizione'].concat(
+            colonne.map(g => GIORNI[(daIso(g).getDay() + 6) % 7] + ' ' + fmtData(g).slice(0, 5)), ['Totale']),
+          righe: voci.filter(visibile).map(v => v.riga) },
+        { nome: 'Riepilogo', colonne: ['Sub', 'Totale settimana', 'Target', 'Differenza'], righe: sintesi }])) : null,
       h('p', null, (S.io === 'sub' ? 'I pezzi che ci hai riconsegnato, giorno per giorno' : 'Pezzi riconsegnati giorno per giorno')
         + (stima ? ' · ≈ alcuni giorni sono stimati (data dell’ultima chiusura della bolletta)' : ''))),
     nav,
@@ -1573,10 +1732,14 @@ async function controlloPeriodico() {
     aggiornaInviti();
     const scrivendo = document.activeElement && /TEXTAREA|INPUT/.test(document.activeElement.tagName);
     if (scrivendo || _attese.size || document.querySelector('.velo')) return;
+    // numeri nuovi dal PC (Carico, Aperte, Chiuse): anche Sub e commesse nuove
+    if (cambiati) { try { S.subs = await q(sb.from('sub').select('*').order('ordine').order('nome')); } catch (e) { /* al giro dopo */ } }
     if (S.vista === 'bacheca') return vistaBacheca();
     await contaDaLeggere();
     aggiornaConta();
     if (S.vista === 'righe' && !S.archivio && (S.daLeggere || cambiati)) return vistaRighe();
+    if (cambiati && S.vista === 'carico') return vistaCarico();
+    if (cambiati && S.vista === 'consegne') return vistaConsegne();
   } catch (e) { /* riprova al giro dopo */ }
 }
 

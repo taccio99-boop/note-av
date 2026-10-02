@@ -27,6 +27,7 @@ const S = {
   invii: [],            // invii non ancora letti
   evidenza: {},         // sub_id -> soglia delle Righe "nuove" al momento dell'apertura
   daLeggere: 0,         // commesse con novita' dall'altra parte (pallino sulla scheda)
+  cerca: '',            // testo della ricerca nelle Righe
   archivio: false,
   lunedi: null,
   splashFatto: false,
@@ -82,6 +83,7 @@ const ICONE = {
   schermo: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   storico: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   attenzione: '<path d="M12 3 2 20h20z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>',
+  lente: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/>',
 };
 
 /* ---------------------------------------------------------------------------
@@ -180,11 +182,23 @@ function tinta(id) { let n = 0; for (const c of id) n = (n * 31 + c.charCodeAt(0
 async function gestisciErrore(err, dove) {
   console.error(dove, err);
   const codice = err && (err.code || err.status);
-  if (codice === '42501' || codice === 'PGRST301' || codice === 401) {
-    const ok = await controllaSessione();
-    if (!ok) return;
+  if (codice === '42501' || codice === 'PGRST301' || codice === 'PGRST303' || codice === 401) {
+    const esito = await controllaSessione();
+    if (esito !== 'ok' && esito !== 'rete') return;      // e' uscito: c'e' gia' la pagina d'accesso
   }
-  toast(navigator.onLine === false ? 'Manca la connessione a internet: riprova tra poco.' : 'Qualcosa non è andato: riprova tra poco.');
+  toast(navigator.onLine === false || erroreDiRete(err) ? 'Manca la connessione a internet: riprova tra poco.' : 'Qualcosa non è andato: riprova tra poco.');
+}
+
+// Errore "non si sa": rete assente, server lento o in manutenzione. In questi
+// casi NON si fa uscire nessuno: si riprova piu' tardi.
+function erroreDiRete(err) {
+  if (!err) return false;
+  if (navigator.onLine === false) return true;
+  if (window.supabase && typeof window.supabase.isAuthRetryableFetchError === 'function' && window.supabase.isAuthRetryableFetchError(err)) return true;
+  if (err.name === 'AuthRetryableFetchError') return true;
+  const st = Number(err.status);
+  if (st === 0 || st >= 500) return true;
+  return /fetch|network|load failed|timed? ?out|abort|connessione/i.test(String(err.message || '') + ' ' + String(err.details || ''));
 }
 
 /* ---------------------------------------------------------------------------
@@ -218,9 +232,65 @@ async function avvio() {
   // modulo d'accesso e si ripulisce l'indirizzo.
   const u = new URLSearchParams(location.search).get('u');
   if (u) { S.utenteSuggerito = u.slice(0, 40); ricorda('utente', S.utenteSuggerito); history.replaceState(null, '', location.pathname); }
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) return vistaAccesso();
-  await dopoAccesso();
+  // Se supabase-js butta via la sessione (password cambiata, dispositivi
+  // scollegati) mentre la pagina e' aperta, si torna alla pagina d'accesso.
+  sb.auth.onAuthStateChange(evento => {
+    if (evento === 'SIGNED_OUT' && S.chi && !S.uscendo) { S.chi = null; S.io = null; clearInterval(_timer); vistaAccesso('Accesso non più valido: rientra.'); }
+  });
+  await entra();
+}
+
+/* Lo stato dell'accesso, senza mai far uscire qualcuno per sbaglio:
+     ok            -> dentro (con i dati di chi_sono)
+     fuori         -> non c'e' una sessione salvata, o Supabase dice che e' finita
+     scaduta       -> sono passati i 30 giorni, o l'Admin ha scollegato i dispositivi
+     non-abilitato -> l'utente non ha un profilo Note Av
+     rete          -> non si riesce a saperlo adesso (niente internet): si riprova */
+async function statoSessione() {
+  let sess;
+  try { sess = await sb.auth.getSession(); } catch (e) { return { esito: 'rete' }; }
+  if (sess.error) return { esito: erroreDiRete(sess.error) ? 'rete' : 'fuori' };
+  if (!sess.data || !sess.data.session) return { esito: 'fuori' };
+  let r;
+  try { r = await sb.rpc('chi_sono'); } catch (e) { return { esito: 'rete' }; }
+  if (r.error) {
+    if (erroreDiRete(r.error) || r.status === 0 || r.status >= 500) return { esito: 'rete' };
+    // gettone d'accesso rifiutato: si prova a rinnovarlo una volta
+    const rin = await sb.auth.refreshSession().catch(e => ({ error: e }));
+    if (rin.error) return { esito: erroreDiRete(rin.error) ? 'rete' : 'fuori' };
+    try { r = await sb.rpc('chi_sono'); } catch (e) { return { esito: 'rete' }; }
+    if (r.error) return { esito: 'rete' };
+  }
+  if (!r.data) return { esito: 'non-abilitato' };
+  if (!r.data.sessione_valida) return { esito: 'scaduta' };
+  return { esito: 'ok', chi: r.data };
+}
+
+async function entra() {
+  const st = await statoSessione();
+  if (st.esito === 'fuori') return vistaAccesso();
+  if (st.esito === 'rete') return vistaSenzaRete();
+  if (st.esito === 'non-abilitato') return esci('Questo utente non è abilitato a Note Av.');
+  if (st.esito === 'scaduta') return esci('Sono passati 30 giorni (o l’accesso è stato chiuso): rientra con nome utente e password.');
+  fermaRiprova();
+  return dopoAccesso(st.chi);
+}
+
+/* Niente internet all'apertura: la sessione resta salvata, si aspetta e si
+   riprova da soli. Nessuna password da riscrivere. */
+let _riprova;
+function fermaRiprova() { clearTimeout(_riprova); window.removeEventListener('online', entra); }
+function vistaSenzaRete() {
+  fermaRiprova();
+  _riprova = setTimeout(entra, 15000);
+  window.addEventListener('online', entra, { once: true });
+  const tasto = h('button', { class: 'tasto pieno', onclick: () => { tasto.disabled = true; tasto.textContent = 'Un momento…'; entra(); } }, 'Riprova');
+  app.replaceChildren(h('div', { class: 'accesso' }, h('div', { class: 'colonna-accesso' }, h('div', { class: 'scheda-accesso' },
+    marchio(),
+    h('h2', null, 'Non riesco a collegarmi'),
+    h('p', null, 'Controlla che il telefono o il computer sia collegato a internet (Wi-Fi o dati). Riprovo da solo tra pochi secondi.'),
+    h('p', { class: 'nota-piccola', style: 'margin:0 0 16px' }, 'Non serve riscrivere la password: il tuo accesso è sempre valido.'),
+    tasto))));
 }
 
 function marchio(sotto) {
@@ -260,7 +330,7 @@ function vistaAccesso(messaggio) {
       return;
     }
     ricorda('utente', nome);      // la prossima volta il nome utente e' gia' scritto
-    await dopoAccesso();
+    await entra();
   } },
     marchio(),
     conInstalla ? h('h2', null, h('span', { class: 'passo-n' }, '2'), 'Entra') : null,
@@ -280,25 +350,28 @@ function vistaAccesso(messaggio) {
 }
 
 async function esci(messaggio) {
+  S.uscendo = true;
   await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+  S.uscendo = false;
   S.chi = null; S.io = null; S.splashFatto = false;
   clearInterval(_timer);
+  fermaRiprova();
   vistaAccesso(messaggio);
 }
 
+// Ritorna l'esito (vedi statoSessione); fa uscire SOLO se l'accesso e' davvero finito.
 async function controllaSessione() {
-  const { data, error } = await sb.rpc('chi_sono');
-  if (error || !data) { await esci('Accesso non più valido: rientra.'); return false; }
-  if (!data.sessione_valida) { await esci('Il tuo accesso è scaduto o è stato chiuso: rientra con nome utente e password.'); return false; }
-  return true;
+  const st = await statoSessione();
+  if (st.esito === 'fuori') await esci('Accesso non più valido: rientra.');
+  else if (st.esito === 'scaduta') await esci('Sono passati 30 giorni (o l’accesso è stato chiuso): rientra con nome utente e password.');
+  else if (st.esito === 'non-abilitato') await esci('Questo utente non è abilitato a Note Av.');
+  return st.esito;
 }
 
-async function dopoAccesso() {
-  let chi;
-  try { chi = await q(sb.rpc('chi_sono')); } catch (e) { chi = null; }
-  if (!chi) return esci('Questo utente non è abilitato a Note Av.');
-  if (!chi.sessione_valida) return esci('Il tuo accesso è scaduto: rientra.');
+async function dopoAccesso(chi) {
   S.chi = chi; S.io = chi.ruolo;
+  // chiede al browser di non cancellare i dati salvati (sessione compresa) quando manca spazio
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   if (S.io === 'admin') {
     const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -356,7 +429,7 @@ function vistaCodice(titolo, contenuto, idFattore) {
       errore.classList.remove('nascosto'); tasto.disabled = false; codice.select();
       return;
     }
-    await dopoAccesso();
+    await entra();
   } },
     marchio(titolo), errore, contenuto,
     h('label', { class: 'campo' }, h('span', null, 'Codice'), codice),
@@ -525,6 +598,7 @@ function aggiornaConta() {
 }
 
 function vai(vista, subSel) {
+  if (vista !== S.vista) S.cerca = '';      // cambiando pagina la ricerca riparte vuota
   S.vista = vista;
   if (subSel !== undefined) S.subSel = subSel;
   S.archivio = false;
@@ -556,6 +630,61 @@ function suggerimento(chiave, contenuto) {
 
 function numero(etichetta, valore, forte) {
   return h('div', { class: 'numero' + (forte ? ' forte' : '') }, h('span', null, etichetta), h('b', null, valore));
+}
+
+/* ---------------------------------------------------------------------------
+   Ricerca nelle Righe: piu' parole = devono esserci tutte; non contano
+   maiuscole e accenti; nei codici si possono saltare trattini e spazi
+   ("250412" trova "25-0412"). Le righe non si ridisegnano: si nascondono,
+   cosi' quello che si sta scrivendo nelle note non si perde.
+   --------------------------------------------------------------------------- */
+
+const normalizza = t => String(t == null ? '' : t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const compatta = t => t.replace(/[^a-z0-9]/g, '');
+
+function corrisponde(testi, cerca) {
+  const parole = normalizza(cerca).split(/\s+/).filter(Boolean);
+  if (!parole.length) return true;
+  const tutto = normalizza(testi.filter(Boolean).join(' · '));
+  const corto = compatta(tutto);
+  return parole.every(p => tutto.includes(p) || (compatta(p) !== '' && corto.includes(compatta(p))));
+}
+
+function testiRiga(r, s) {
+  return [r.commessa, r.modello, r.parte, r.descrizione, r.stagione, S.io === 'admin' ? nomeSub(r.sub_id) : null,
+    s.nota && s.nota.testo, s.risposta && s.risposta.testo, s.bNota && s.bNota.testo, s.bRisposta && s.bRisposta.testo,
+    s.dataEff ? fmtData(s.dataEff) : null];
+}
+
+function boxCerca(aggiorna) {
+  const x = h('button', { class: 'cerca-x' + (S.cerca ? '' : ' nascosto'), type: 'button', 'aria-label': 'Cancella la ricerca' }, '×');
+  const input = h('input', { type: 'search', value: S.cerca || '', 'aria-label': 'Cerca una commessa',
+    placeholder: S.io === 'sub' ? 'Cerca: numero commessa, modello…' : 'Cerca: commessa, modello, Sub, nota…',
+    autocomplete: 'off', autocorrect: 'off', autocapitalize: 'none', spellcheck: 'false', enterkeyhint: 'search',
+    oninput: () => { S.cerca = input.value; x.classList.toggle('nascosto', !input.value); aggiorna(); },
+    onkeydown: ev => { if (ev.key === 'Enter') input.blur(); else if (ev.key === 'Escape') svuota(); } });
+  const svuota = () => { input.value = ''; S.cerca = ''; x.classList.add('nascosto'); aggiorna(); input.focus(); };
+  x.addEventListener('click', svuota);
+  return h('div', { class: 'cerca', role: 'search' }, ico('lente'), input, x);
+}
+
+/* Collega la casella di ricerca a un elenco di elementi gia' disegnati.
+   voci: [{ el, testi }]; contenitore: cosa nascondere se non si trova niente. */
+function ricercaSu(voci, contenitore) {
+  const trovate = h('p', { class: 'trovate', 'aria-live': 'polite' });
+  const cosa = h('span');
+  const niente = h('div', { class: 'vuoto nascosto' }, h('b', null, 'Nessuna commessa trovata'), cosa, ' ',
+    h('button', { class: 'link', onclick: () => { const x = document.querySelector('.cerca-x'); if (x) x.click(); } }, 'Cancella la ricerca'));
+  const aggiorna = () => {
+    let n = 0;
+    for (const v of voci) { const si = corrisponde(v.testi, S.cerca); v.el.classList.toggle('nascosto', !si); if (si) n++; }
+    const attiva = !!normalizza(S.cerca).trim();
+    trovate.textContent = attiva ? (n === 1 ? '1 commessa trovata' : n + ' commesse trovate') : '';
+    cosa.textContent = 'Nessuna commessa corrisponde a «' + (S.cerca || '').trim() + '». Controlla di averlo scritto bene.';
+    contenitore.classList.toggle('nascosto', attiva && !n);
+    niente.classList.toggle('nascosto', !(attiva && !n));
+  };
+  return { casella: boxCerca(aggiorna), trovate, niente, aggiorna };
 }
 
 /* ---------------------------------------------------------------------------
@@ -604,17 +733,20 @@ function disegnaRighe() {
   const testa = ['Commessa', conSub ? 'Sub' : null, 'Modello', 'Parte', 'Descrizione', 'Stagione', 'Lanciata', 'Scadenza', 'Aperte', 'Nota', 'Risposta', 'Data prevista']
     .filter(Boolean);
   const numeriche = new Set(['Lanciata', 'Aperte']);
-  const tab = h('table', { class: 't' },
+  const voci = elenco.map(x => ({ el: rigaRighe(x.r, x.s, conSub), testi: testiRiga(x.r, x.s) }));
+  const tabella = h('div', { class: 'tabella-box' }, h('table', { class: 't' },
     h('thead', null, h('tr', null, testa.map(t => h('th', { class: numeriche.has(t) ? 'num' : null }, t)))),
-    h('tbody', null, elenco.map(x => rigaRighe(x.r, x.s, conSub))));
+    h('tbody', null, voci.map(v => v.el))));
+  const ricerca = ricercaSu(voci, tabella);
 
   riempi(c,
     filtroSub(() => vistaRighe().catch(e => gestisciErrore(e, 'righe'))),
     intest,
-    elenco.length ? h('div', { class: 'tabella-box' }, tab)
+    elenco.length ? [ricerca.casella, ricerca.trovate, tabella, ricerca.niente]
       : h('div', { class: 'vuoto' }, S.archivio ? 'Nessuna commessa in archivio.' : 'Nessuna commessa in casa in questo momento.'),
     h('p', { class: 'piede' }, h('button', { class: 'link', onclick: () => { S.archivio = !S.archivio; disegnaRighe(); } },
       S.archivio ? '← Torna alle Righe' : 'Apri l’archivio delle commesse chiuse')));
+  ricerca.aggiorna();
   disegnaBarra();
 }
 
@@ -623,6 +755,9 @@ function disegnaRigheSub(elenco) {
   const nNuove = elenco.filter(x => x.s.nuovo).length;
   const nRitardo = elenco.filter(x => x.s.ritardo).length;
   const sole = svg(SOLE);
+  const voci = elenco.map(x => ({ el: schedaRiga(x.r, x.s), testi: testiRiga(x.r, x.s) }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
   const frase = S.archivio ? 'Le commesse già chiuse su cui vi siete scritti.'
     : nNuove ? (nNuove === 1 ? 'L’ufficio ti ha scritto su 1 commessa: la trovi qui sotto, in giallo.' : 'L’ufficio ti ha scritto su ' + nNuove + ' commesse: le trovi qui sotto, in giallo.')
     : elenco.length ? 'Nessuna nota nuova. Hai ' + elenco.length + (elenco.length === 1 ? ' commessa' : ' commesse') + ' in casa.'
@@ -636,10 +771,11 @@ function disegnaRigheSub(elenco) {
       h('li', null, h('span', { class: 'passo-n' }, '1'), 'Leggi la nota dell’ufficio (riquadro giallo).'),
       h('li', null, h('span', { class: 'passo-n' }, '2'), 'Scrivi la risposta e, se la sai, la data di consegna.'),
       h('li', null, h('span', { class: 'passo-n' }, '3'), 'Premi il tasto verde INVIA in fondo.'))),
-    elenco.length ? h('div', { class: 'elenco-schede' }, elenco.map(x => schedaRiga(x.r, x.s)))
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
       : vuoto(S.archivio ? 'Archivio vuoto' : 'Tutto tranquillo', S.archivio ? 'Qui finiscono le commesse chiuse su cui vi siete scritti.' : 'Al momento non hai commesse in casa.'),
     h('p', { class: 'piede' }, h('button', { class: 'link', onclick: () => { S.archivio = !S.archivio; disegnaRighe(); window.scrollTo(0, 0); } },
       S.archivio ? '← Torna alle commesse in casa' : 'Vedi le commesse già chiuse')));
+  ricerca.aggiorna();
   disegnaBarra();
 }
 
@@ -1382,7 +1518,7 @@ function avviaControlloPeriodico() {
 
 async function controlloPeriodico() {
   if (!S.chi || document.hidden) return;
-  if (!(await controllaSessione())) return;
+  if ((await controllaSessione()) !== 'ok') return;     // 'rete': si riprova al giro dopo, senza uscire
   try {
     const st = await q(sb.from('stato_dati').select('*'));
     const cambiati = st[0] && (!S.stato || st[0].aggiornato !== S.stato.aggiornato);

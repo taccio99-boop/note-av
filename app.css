@@ -166,7 +166,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px 16px calc(110px + env(sa
 .pallino { width: 9px; height: 9px; border-radius: 50%; background: var(--cuoio); display: inline-block; flex: none; }
 
 /* ---------- tabelle (diventano schede sul telefono) ---------- */
-.tabella-box { background: var(--surface); border-radius: var(--raggio); box-shadow: var(--ombra); border: 1px solid var(--line); overflow: hidden; }
+.tabella-box { background: var(--surface); border-radius: var(--raggio); box-shadow: var(--ombra); border: 1px solid var(--line); overflow-x: auto; }
 table.t { width: 100%; border-collapse: collapse; font-size: 15px; }
 table.t th { text-align: left; font-weight: 600; color: var(--ink-2); font-size: 13px; text-transform: uppercase; letter-spacing: .4px; background: var(--surface-2); padding: 10px 10px; white-space: nowrap; }
 table.t td { padding: 10px 10px; border-top: 1px solid var(--line); vertical-align: top; }
@@ -282,6 +282,14 @@ input.data:focus { border-color: var(--accent); outline: none; }
 .storico li.admin { background: var(--accent-2); }
 .storico li.sub { background: var(--cuoio-2); }
 .storico .quando { font-size: 13px; color: var(--ink-2); margin-bottom: 3px; }
+
+/* ---------- invito ad attivare le notifiche ---------- */
+.banner {
+  max-width: 1400px; margin: 12px auto 0; padding: 12px 14px; border-radius: 14px; background: var(--accent-2);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: 16px;
+}
+#banner-notifiche:not(:empty) { padding: 0 16px; }
+.banner span { flex: 1 1 220px; }
 
 /* ---------- avvisi brevi ---------- */
 #toast {

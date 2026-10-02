@@ -383,7 +383,8 @@ function disegna() {
     h('nav', { class: 'schede', role: 'tablist' },
       viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), onclick: () => vai(v) }, NOMI_VISTA[v]))));
   const corpo = h('main', { id: 'corpo' }, h('div', { class: 'caricamento' }, h('span', { class: 'punto' })));
-  app.replaceChildren(testata, corpo, h('div', { id: 'barra' }));
+  app.replaceChildren(testata, h('div', { id: 'banner-notifiche' }), corpo, h('div', { id: 'barra' }));
+  bannerNotifiche();
   ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
 }
@@ -839,6 +840,71 @@ async function vistaAccessi() {
       h('thead', null, h('tr', null, ['Sub', 'Accesso', 'Dispositivi', ''].map(t => h('th', null, t)))),
       h('tbody', null, schede))));
   disegnaBarra();
+}
+
+/* ---------------------------------------------------------------------------
+   Notifiche push: si chiedono con un tasto (i browser lo pretendono) e si
+   registrano sul database; le manda il PC dell'ufficio.
+   --------------------------------------------------------------------------- */
+
+function standalone() {
+  return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+}
+
+function statoNotifiche() {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const ok = CFG.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (!ok) return ios && !standalone() ? 'ios-home' : 'non-supportate';
+  if (Notification.permission === 'granted') return 'attive';
+  if (Notification.permission === 'denied') return 'negate';
+  return 'da-chiedere';
+}
+
+function chiaveVapid() {
+  const b = CFG.vapidPublicKey.replace(/-/g, '+').replace(/_/g, '/');
+  const s = atob(b + '='.repeat((4 - b.length % 4) % 4));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+async function iscriviNotifiche() {
+  const reg = await navigator.serviceWorker.ready;
+  let iscr = await reg.pushManager.getSubscription();
+  if (!iscr) iscr = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chiaveVapid() });
+  const j = iscr.toJSON();
+  await q(sb.rpc('iscrivi_push', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth }));
+}
+
+function bannerNotifiche() {
+  const box = document.getElementById('banner-notifiche');
+  if (!box) return;
+  const stato = statoNotifiche();
+  let chiuso = false;
+  try { chiuso = sessionStorage.getItem('noteav-banner-chiuso') === '1'; } catch (e) { /* niente */ }
+  if (stato === 'attive') {
+    box.replaceChildren();
+    if (!S.pushRinnovata) { S.pushRinnovata = true; iscriviNotifiche().catch(e => console.warn('iscrizione push', e)); }   // rinnova in silenzio, una volta
+    return;
+  }
+  if (chiuso || stato === 'non-supportate' || stato === 'negate') { box.replaceChildren(); return; }
+  const chiudi = h('button', { class: 'link', onclick: () => { try { sessionStorage.setItem('noteav-banner-chiuso', '1'); } catch (e) { /* niente */ } box.replaceChildren(); } }, 'Più tardi');
+  if (stato === 'ios-home') {
+    box.replaceChildren(h('div', { class: 'banner' },
+      h('span', null, 'Per ricevere le notifiche su iPhone: tocca ', h('b', null, 'Condividi'), ' e poi ', h('b', null, 'Aggiungi alla schermata Home'), '. Poi apri Note Av dall’icona.'),
+      chiudi));
+    return;
+  }
+  const attiva = h('button', { class: 'tasto piccolo', onclick: async () => {
+    attiva.disabled = true;
+    try {
+      const esito = await Notification.requestPermission();
+      if (esito === 'granted') { await iscriviNotifiche(); toast('Notifiche attive su questo dispositivo.'); }
+      else toast('Notifiche non attivate.');
+    } catch (e) { gestisciErrore(e, 'notifiche'); }
+    bannerNotifiche();
+  } }, 'Attiva');
+  box.replaceChildren(h('div', { class: 'banner' },
+    h('span', null, S.io === 'admin' ? 'Vuoi un avviso quando un Sub risponde?' : 'Vuoi un avviso quando l’ufficio ti scrive?'),
+    attiva, chiudi));
 }
 
 /* ---------------------------------------------------------------------------

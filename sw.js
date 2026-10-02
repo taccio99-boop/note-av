@@ -4,7 +4,7 @@
    dati: quelli arrivano sempre da Supabase dopo l'accesso. */
 'use strict';
 
-const VERSIONE = 'note-av-v1';
+const VERSIONE = 'note-av-v2';
 const FILE = ['./', 'index.html', 'app.css', 'app.js', 'config.js', 'vendor/supabase.min.js',
   'manifest.webmanifest', 'icone/icona-192.png', 'icone/icona-512.png'];
 

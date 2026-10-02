@@ -5,5 +5,5 @@ window.NOTE_AV = {
   "supabaseUrl": "https://qtmhortschseoabusimr.supabase.co",
   "supabaseKey": "sb_publishable_83xeF_eX4bnT5fuzNk6fRA_kyvdzL3W",
   "dominioUtenti": "utenti.note-av.example",
-  "vapidPublicKey": ""
+  "vapidPublicKey": "BGoHhpH2jlTd8XrhIwSEKzkS-KVYseZ1kfLGjMRo5Lp88J5UFGQS-v_7OhjvJfcXOZY5_Q4TIYCvD15WGtYPcxs"
 };

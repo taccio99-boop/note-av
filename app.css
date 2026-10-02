@@ -310,6 +310,19 @@ input.data:focus { border-color: var(--accent); outline: none; }
 .scheda .stato-invio.inviata { color: var(--verde); }
 .scheda .stato-invio svg { width: 18px; height: 18px; }
 
+/* bollette in casa (schede e tabelle) */
+.bollette { display: grid; gap: 6px; }
+.bollette-tit { font-size: 14px; color: var(--ink-2); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.bollette-tit svg { width: 17px; height: 17px; }
+.bollette-el { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.bolletta { display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; font-size: 15px; white-space: nowrap; }
+.bolletta b { font-variant-numeric: tabular-nums; }
+.bollette .link { font-size: 14px; }
+.bollette.compatte { margin-top: 6px; gap: 4px; }
+.bollette.compatte .bollette-tit { font-size: 12px; }
+.bollette.compatte .bollette-tit svg { width: 14px; height: 14px; }
+.bollette.compatte .bolletta { font-size: 13px; padding: 2px 7px; border-radius: 8px; }
+
 /* ---------- barra d'invio ---------- */
 .barra-invio {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));

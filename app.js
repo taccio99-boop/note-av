@@ -653,8 +653,15 @@ function corrisponde(testi, cerca) {
 function testiRiga(r, s) {
   return [r.commessa, r.modello, r.parte, r.descrizione, r.stagione, S.io === 'admin' ? nomeSub(r.sub_id) : null,
     s.nota && s.nota.testo, s.risposta && s.risposta.testo, s.bNota && s.bNota.testo, s.bRisposta && s.bRisposta.testo,
-    s.dataEff ? fmtData(s.dataEff) : null];
+    s.dataEff ? fmtData(s.dataEff) : null, numeriBolle(r)];
 }
+
+function testiCarico(r) {
+  return [r.commessa, r.modello, r.parte, r.descrizione, r.stagione, STATI[r.stato],
+    S.io === 'admin' ? nomeSub(r.sub_id) : null, numeriBolle(r)];
+}
+
+const numeriBolle = r => (r.bolle || []).map(b => b.b).join(' ');
 
 function boxCerca(aggiorna) {
   const x = h('button', { class: 'cerca-x' + (S.cerca ? '' : ' nascosto'), type: 'button', 'aria-label': 'Cancella la ricerca' }, '×');
@@ -817,6 +824,7 @@ function schedaRiga(r, s) {
       numero('In casa', pz(r.aperte) + ' pz', true),
       numero('Commessa', pz(r.lanciata) + ' pz'),
       numero('Scadenza', fmtData(r.scadenza) || '—')),
+    bolletteInCasa(r),
     s.nota && s.nota.testo
       ? h('div', { class: 'bolla' }, h('div', { class: 'chi' }, ico('note'), 'L’ufficio ti scrive · ' + fmtQuando(s.nota.inviata_il)), h('div', { class: 'testo-nota' }, s.nota.testo))
       : h('div', { class: 'bolla vuota' }, 'Nessuna nota dall’ufficio su questa commessa.'),
@@ -844,6 +852,7 @@ function rigaRighe(r, s, conSub) {
     h('div', null, h('span', { class: 'cod' }, r.commessa), ' ',
       r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null),
     etichette.length ? h('div', { style: 'margin-top:4px;display:flex;gap:6px;flex-wrap:wrap' }, etichette) : null,
+    bolletteInCasa(r, true),
     h('button', { class: 'link', style: 'font-size:13px', onclick: () => apriStorico(r) }, 'Storico'));
 
   // Nota (scrive l'Admin)
@@ -1018,12 +1027,11 @@ async function vistaCarico() {
   const conSub = S.subSel === '*';
   const testa = ['Commessa', conSub ? 'Sub' : null, 'Modello', 'Descrizione', 'Scadenza', 'Lanciata', 'Aperte', 'In arrivo', 'Chiuse', 'Rimaste', 'Stato'].filter(Boolean);
   const num = new Set(['Lanciata', 'Aperte', 'In arrivo', 'Chiuse', 'Rimaste']);
-  const tab = h('table', { class: 't' },
-    h('thead', null, h('tr', null, testa.map(t => h('th', { class: num.has(t) ? 'num' : null }, t)))),
-    h('tbody', null, elenco.map(r => h('tr', null,
+  const voci = elenco.map(r => ({ testi: testiCarico(r), el: h('tr', null,
       h('td', { class: 'testa', 'data-l': 'Commessa' },
         h('span', { class: 'cod' }, r.commessa), ' ',
         r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null,
+        bolletteInCasa(r, true),
         dettaglioCarico(r)),
       conSub ? h('td', { 'data-l': 'Sub' }, nomeSub(r.sub_id)) : null,
       h('td', { 'data-l': 'Modello' }, [r.modello, r.parte].filter(Boolean).join(' ')),
@@ -1034,44 +1042,73 @@ async function vistaCarico() {
       h('td', { class: 'num', 'data-l': 'In arrivo' }, pz(r.in_arrivo)),
       h('td', { class: 'num', 'data-l': 'Chiuse' }, pz(r.chiuse)),
       h('td', { class: 'num', 'data-l': 'Rimaste' }, pz(r.rimaste)),
-      h('td', { 'data-l': 'Stato' }, STATI[r.stato] || '')))));
+      h('td', { 'data-l': 'Stato' }, STATI[r.stato] || '')) }));
+  const tabella = h('div', { class: 'tabella-box' }, h('table', { class: 't' },
+    h('thead', null, h('tr', null, testa.map(t => h('th', { class: num.has(t) ? 'num' : null }, t)))),
+    h('tbody', null, voci.map(v => v.el))));
+  const ricerca = ricercaSu(voci, tabella);
   riempi(corpo(),
     filtroSub(() => vistaCarico().catch(e => gestisciErrore(e, 'carico'))),
     h('div', { class: 'intestazione' }, h('h2', null, 'Carico'),
       h('p', null, elenco.length + ' commesse · in casa ' + pz(tot('aperte')) + ' pz · in arrivo ' + pz(tot('in_arrivo')) + ' pz · rimaste ' + pz(tot('rimaste')) + ' pz')),
-    elenco.length ? h('div', { class: 'tabella-box' }, tab) : h('div', { class: 'vuoto' }, 'Nessuna commessa assegnata.'));
+    elenco.length ? [ricerca.casella, ricerca.trovate, tabella, ricerca.niente] : h('div', { class: 'vuoto' }, 'Nessuna commessa assegnata.'));
+  ricerca.aggiorna();
   disegnaBarra();
 }
 
 function disegnaCaricoSub(elenco, tot) {
+  const voci = elenco.map(r => ({ testi: testiCarico(r), el: h('article', { class: 'scheda' },
+    h('div', { class: 'capo' },
+      h('div', null, h('span', { class: 'cod' }, r.commessa),
+        h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
+      h('div', { class: 'etichette' }, h('span', { class: 'etichetta' + (r.stato === 'lav' ? ' verde' : '') }, STATI[r.stato] || ''))),
+    h('div', { class: 'numeri' },
+      numero('In casa', pz(r.aperte) + ' pz', true),
+      numero('In arrivo', pz(r.in_arrivo) + ' pz'),
+      numero('Già consegnati', pz(r.chiuse) + ' pz'),
+      numero('Scadenza', fmtData(r.scadenza) || '—')),
+    bolletteInCasa(r),
+    dettaglioCarico(r),
+    r.diba ? h('div', { class: 'piedino' }, h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base')) : null) }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
   riempi(corpo(),
     h('div', { class: 'intestazione' }, h('h2', null, 'Il tuo lavoro'),
       h('p', null, elenco.length + (elenco.length === 1 ? ' commessa' : ' commesse') + ' · in casa ' + pz(tot('aperte')) + ' pz · in arrivo ' + pz(tot('in_arrivo')) + ' pz')),
     suggerimento('lavoro', h('div', null, 'Qui vedi tutte le commesse che ti abbiamo assegnato: i pezzi che hai già in casa, quelli che devono ancora arrivarti e quelli che ci hai già riconsegnato.')),
-    elenco.length ? h('div', { class: 'elenco-schede' }, elenco.map(r => h('article', { class: 'scheda' },
-      h('div', { class: 'capo' },
-        h('div', null, h('span', { class: 'cod' }, r.commessa),
-          h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
-        h('div', { class: 'etichette' }, h('span', { class: 'etichetta' + (r.stato === 'lav' ? ' verde' : '') }, STATI[r.stato] || ''))),
-      h('div', { class: 'numeri' },
-        numero('In casa', pz(r.aperte) + ' pz', true),
-        numero('In arrivo', pz(r.in_arrivo) + ' pz'),
-        numero('Già consegnati', pz(r.chiuse) + ' pz'),
-        numero('Scadenza', fmtData(r.scadenza) || '—')),
-      dettaglioCarico(r),
-      r.diba ? h('div', { class: 'piedino' }, h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base')) : null)))
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
       : vuoto('Nessuna commessa', 'Al momento non ti abbiamo assegnato commesse.'));
+  ricerca.aggiorna();
   disegnaBarra();
 }
 
 function dettaglioCarico(r) {
-  const bolle = r.bolle || [], monte = r.monte || [];
-  if (!bolle.length && !monte.length) return null;
-  return h('details', { class: 'dettaglio' }, h('summary', null, S.io === 'sub' ? 'Vedi le bollette' : 'Dettaglio'),
-    bolle.length ? h('div', null, 'Bollette in casa:', h('ul', null, bolle.map(b =>
-      h('li', null, 'n. ' + b.b + ': ' + pz(b.q) + ' pz' + (b.dal ? ' dal ' + fmtData(b.dal) : ''))))) : null,
-    monte.length ? h('div', null, 'Pezzi in arrivo, ora in:', h('ul', null, monte.map(m =>
-      h('li', null, (m.d || '').toLowerCase() + ': ' + pz(m.pz) + ' pz')))) : null);
+  const monte = r.monte || [];
+  if (!monte.length) return null;
+  return h('details', { class: 'dettaglio' }, h('summary', null, 'Dove sono i pezzi in arrivo'),
+    h('ul', null, monte.map(m => h('li', null, (m.d || '').toLowerCase() + ': ' + pz(m.pz) + ' pz'))));
+}
+
+/* Le bollette che il Sub ha in casa per questa commessa (numero, pezzi, da
+   quando). compatte: per le tabelle dell'Admin. Le altre (oltre 6, o 3 su telefono e tabelle)
+   si aprono a richiesta. */
+function bolletteInCasa(r, compatte) {
+  const bolle = r.bolle || [];
+  if (!bolle.length) return null;
+  const voce = b => h('span', { class: 'bolletta', title: [b.dal ? 'In casa dal ' + fmtData(b.dal) : null,
+      (b.fasi || []).map(f => f.d).filter(Boolean).join(', ')].filter(Boolean).join(' · ') || null },
+    h('b', null, (compatte ? '' : 'n. ') + b.b), ' · ' + pz(b.q) + ' pz' + (!compatte && b.dal ? ' · dal ' + fmtData(b.dal).slice(0, 5) : ''));
+  const MAX = TELEFONO || compatte ? 3 : 6;       // sul telefono e nelle tabelle ogni bolletta prende una riga
+  const elenco = h('div', { class: 'bollette-el' }, bolle.slice(0, MAX).map(voce));
+  if (bolle.length > MAX) {
+    const altre = h('button', { class: 'link', type: 'button', onclick: () => { altre.replaceWith(...bolle.slice(MAX).map(voce)); } },
+      '+ altre ' + (bolle.length - MAX));
+    elenco.append(altre);
+  }
+  return h('div', { class: 'bollette' + (compatte ? ' compatte' : '') },
+    h('span', { class: 'bollette-tit' }, ico('documento'), compatte ? (bolle.length === 1 ? 'Bolletta' : 'Bollette')
+      : (bolle.length === 1 ? 'Bolletta in casa' : bolle.length + ' bollette in casa')),
+    elenco);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1094,6 +1131,7 @@ async function vistaConsegne() {
   const corrente = iso(lun) === iso(lunediDi(new Date()));
 
   const blocchi = [];
+  const voci = [];
   for (const id of ids) {
     const mie = ric.filter(x => x.sub_id === id);
     const tg = target.filter(t => t.sub_id === id && t.dal_lunedi <= iso(lun)).pop();
@@ -1115,6 +1153,8 @@ async function vistaConsegne() {
       h('td', { 'data-l': 'Descrizione' }, c.x.descrizione || ''),
       colonne.map(g => h('td', { class: 'num' + (c.g[g] ? '' : ' vuota-m'), 'data-l': GIORNI[(daIso(g).getDay() + 6) % 7] + ' ' + fmtData(g).slice(0, 5) }, c.g[g] ? pz(c.g[g]) : '')),
       h('td', { class: 'num', 'data-l': 'Totale' }, h('b', null, pz(Object.values(c.g).reduce((a, b) => a + b, 0))))));
+    [...perComm.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([com, c], i) => voci.push({
+      el: righe[i], testi: [com, c.x.modello, c.x.parte, c.x.descrizione, S.io === 'admin' ? nomeSub(id) : null] }));
     const diff = tg ? totale - tg.pezzi : null;
     const cellaTarget = (S.io === 'admin' && corrente) ? campoTarget(id, tg) : h('span', null, tg ? pz(tg.pezzi) + ' pz' : 'non impostato');
     const riepilogo = h('tr', { class: 'totale' },
@@ -1137,13 +1177,18 @@ async function vistaConsegne() {
     h('button', { class: 'freccia', 'aria-label': 'Settimana dopo', disabled: corrente, onclick: () => { S.lunedi = aggiungiGiorni(S.lunedi, 7); vistaConsegne().catch(e => gestisciErrore(e, 'consegne')); } }, '›'),
     corrente ? null : h('button', { class: 'tasto piccolo chiaro', onclick: () => { S.lunedi = lunediDi(new Date()); vistaConsegne().catch(e => gestisciErrore(e, 'consegne')); } }, 'Questa settimana'));
 
+  const contenitore = h('div', null, blocchi);
+  const ricerca = ricercaSu(voci, contenitore);
   riempi(corpo(),
     filtroSub(() => vistaConsegne().catch(e => gestisciErrore(e, 'consegne'))),
     h('div', { class: 'intestazione' }, h('h2', null, 'Consegne'),
       h('p', null, (S.io === 'sub' ? 'I pezzi che ci hai riconsegnato, giorno per giorno' : 'Pezzi riconsegnati giorno per giorno')
         + (stima ? ' · ≈ alcuni giorni sono stimati (data dell’ultima chiusura della bolletta)' : ''))),
     nav,
-    blocchi.length ? blocchi : vuoto('Nessuna consegna', 'In questa settimana non risultano pezzi riconsegnati.'));
+    voci.length ? [ricerca.casella, ricerca.trovate] : null,
+    blocchi.length ? contenitore : vuoto('Nessuna consegna', 'In questa settimana non risultano pezzi riconsegnati.'),
+    voci.length ? ricerca.niente : null);
+  ricerca.aggiorna();
   disegnaBarra();
 }
 

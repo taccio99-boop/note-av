@@ -217,7 +217,7 @@ async function avvio() {
   // Il link nei messaggi porta il nome utente (?u=agena): lo si scrive nel
   // modulo d'accesso e si ripulisce l'indirizzo.
   const u = new URLSearchParams(location.search).get('u');
-  if (u) { S.utenteSuggerito = u.slice(0, 40); history.replaceState(null, '', location.pathname); }
+  if (u) { S.utenteSuggerito = u.slice(0, 40); ricorda('utente', S.utenteSuggerito); history.replaceState(null, '', location.pathname); }
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return vistaAccesso();
   await dopoAccesso();
@@ -236,7 +236,7 @@ function normalizzaPassword(p) {
 }
 
 function vistaAccesso(messaggio) {
-  const utente = h('input', { name: 'utente', type: 'text', autocomplete: 'username', autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', required: true, value: S.utenteSuggerito || '' });
+  const utente = h('input', { name: 'utente', type: 'text', autocomplete: 'username', autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', required: true, value: S.utenteSuggerito || ricordato('utente') || '' });
   const password = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', autocapitalize: 'characters', autocorrect: 'off', spellcheck: 'false', required: true });
   const occhio = h('button', { class: 'occhio', type: 'button', onclick: () => {
     const vedi = password.type === 'password';
@@ -259,6 +259,7 @@ function vistaAccesso(messaggio) {
       tasto.disabled = false; tasto.textContent = 'Entra';
       return;
     }
+    ricorda('utente', nome);      // la prossima volta il nome utente e' gia' scritto
     await dopoAccesso();
   } },
     marchio(),

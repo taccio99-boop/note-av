@@ -45,6 +45,19 @@ const COLONNE = [
   ['controllato', 'Controllato'],
 ];
 const STATI = { lav: 'In lavorazione', attesa: 'Non ancora arrivata', fuori: 'Fuori Carico' };
+
+// Avviso sulle assegnazioni: il Sub lo legge per intero la prima volta (tasto
+// "Ho capito", la data resta nel database), poi resta fisso nella pagina Lavoro.
+// Se si cambia il testo, spostare AVVISO_DEL: tutti i Sub lo rivedranno.
+const AVVISO_DEL = '2026-10-05';
+const AVVISO_BREVE = 'Le commesse che vedi sono quelle assegnate a te in questo momento. Firenze Moda può cambiare l’assegnazione della merce quando serve alla produzione.';
+const AVVISO_TESTO = [
+  ['p', 'In questa app vedi le commesse e le quantità che ti sono assegnate ', ['b', 'in questo momento'], '.'],
+  ['p', 'Firenze Moda si riserva di ', ['b', 'cambiare in qualsiasi momento l’assegnazione della merce'], ', e quindi delle commesse, in base alle esigenze della produzione e dei clienti. Per esempio può:'],
+  ['ul', ['li', 'spostare una commessa, tutta o in parte, a un altro laboratorio;'], ['li', 'cambiare le quantità;'], ['li', 'anticipare o rimandare un lavoro.']],
+  ['p', 'Quello che vedi qui serve a organizzarci meglio e ', ['b', 'non è un impegno'], ' su lavori o quantità futuri. Valgono le bollette e gli accordi presi con l’Ufficio Produzione.'],
+  ['p', 'Se una commessa cambia o sparisce dalla tua lista e hai un dubbio, chiama l’Ufficio Produzione.'],
+];
 const GIORNI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 const TINTE = ['#c2541a', '#d4880f', '#2f855a', '#b0476b', '#3d7ea6', '#8a6a1f', '#6b5bb0', '#a0522d', '#2f7f7a'];
 
@@ -390,7 +403,15 @@ async function dopoAccesso(chi) {
   try { await caricaBase(); } catch (e) { return gestisciErrore(e, 'base'); }
   disegna();
   avviaControlloPeriodico();
-  if (S.io === 'sub' && !ricordato('guida')) setTimeout(() => apriGuida(0), 400);
+  if (S.io === 'sub') setTimeout(async () => {
+    if (!avvisoLetto()) await apriAvviso(true);
+    if (!ricordato('guida')) apriGuida(0);
+  }, 400);
+}
+
+function avvisoLetto() {
+  const il = S.chi && S.chi.avviso_letto_il;
+  return !!il && il.slice(0, 10) >= AVVISO_DEL;
 }
 
 /* Doppia verifica dell'Admin: codice a 6 cifre da un'app sul telefono. */
@@ -1011,6 +1032,46 @@ function finestra(...contenuto) {
   return { velo, chiudi, box: velo.firstChild };
 }
 
+function finestraObbligata(...contenuto) {
+  const velo = h('div', { class: 'velo' }, h('div', { class: 'finestra', role: 'alertdialog', 'aria-modal': 'true' }, contenuto));
+  document.body.append(velo);
+  return { velo, chiudi: () => velo.remove(), box: velo.firstChild };
+}
+
+const daSchema = n => typeof n === 'string' ? n : h(n[0], null, n.slice(1).map(daSchema));
+
+/* Avviso sulle assegnazioni. obbligatorio: la prima volta, si chiude solo con
+   "Ho capito" (che resta registrato); altrimenti e' solo da rileggere. */
+function apriAvviso(obbligatorio) {
+  return new Promise(fatto => {
+    const testo = [h('h3', null, 'Avviso sulle assegnazioni'), h('div', { class: 'avviso-testo' }, AVVISO_TESTO.map(daSchema))];
+    if (!obbligatorio) {
+      const il = avvisoLetto() ? S.chi.avviso_letto_il : null;
+      const f = finestra(testo, il ? h('p', { class: 'nota-piccola' }, 'Hai confermato di averlo letto il ' + fmtQuando(il) + '.') : null,
+        h('button', { class: 'tasto pieno chiaro', onclick: () => f.chiudi() }, 'Chiudi'));
+      return fatto();
+    }
+    const tasto = h('button', { class: 'tasto pieno', onclick: async () => {
+      tasto.disabled = true;
+      const { data, error } = await sb.rpc('segna_avviso_letto');
+      if (error && !erroreDiRete(error)) { f.chiudi(); fatto(); return gestisciErrore(error, 'avviso'); }
+      // senza internet si chiude lo stesso: alla prossima apertura lo richiede
+      if (!error) S.chi.avviso_letto_il = data || new Date().toISOString();
+      f.chiudi(); fatto();
+    } }, ico('fatto'), 'Ho capito');
+    const f = finestraObbligata(testo, tasto,
+      h('p', { class: 'nota-piccola', style: 'text-align:center' }, 'Toccando «Ho capito» confermi di aver letto questo avviso.'));
+    tasto.focus();
+  });
+}
+
+/* Riquadro fisso in cima alla pagina Lavoro del Sub: non si chiude. */
+function avvisoFisso() {
+  return h('div', { class: 'avviso-fisso', role: 'note' }, ico('attenzione'),
+    h('div', null, h('b', null, 'Avviso: '), AVVISO_BREVE, ' ',
+      h('button', { class: 'link', onclick: () => apriAvviso(false) }, 'Leggi l’avviso completo')));
+}
+
 function apriStorico(r) {
   const voci = S.msgs.filter(m => m.sub_id === r.sub_id && m.commessa === r.commessa && m.inviata_il)
     .sort((a, b) => (a.inviata_il < b.inviata_il ? 1 : -1));
@@ -1097,6 +1158,7 @@ function disegnaCaricoSub(elenco, tot) {
   riempi(corpo(),
     h('div', { class: 'intestazione' }, h('h2', null, 'Il tuo lavoro'),
       h('p', null, elenco.length + (elenco.length === 1 ? ' commessa' : ' commesse') + ' · in casa ' + pz(tot('aperte')) + ' pz · in arrivo ' + pz(tot('in_arrivo')) + ' pz')),
+    avvisoFisso(),
     suggerimento('lavoro', h('div', null, 'Qui vedi tutte le commesse che ti abbiamo assegnato: i pezzi che hai già in casa, quelli che devono ancora arrivarti e quelli che ci hai già riconsegnato.')),
     elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
       : vuoto('Nessuna commessa', 'Al momento non ti abbiamo assegnato commesse.'));
@@ -1470,6 +1532,10 @@ async function vistaAccessi() {
     return h('tr', null,
       h('td', { class: 'testa', 'data-l': 'Sub' }, h('b', null, s.nome), s.tipo === 'reparto' ? h('span', { class: 'etichetta', style: 'margin-left:6px' }, 'Reparto') : null),
       h('td', { 'data-l': 'Accesso' }, p ? h('span', null, 'Attivo · utente ', h('span', { class: 'cod' }, p.nome_utente)) : h('span', { class: 'tenue' }, 'Non ancora attivato')),
+      h('td', { 'data-l': 'Avviso assegnazioni' }, !p ? null
+        : p.avviso_letto_il && p.avviso_letto_il.slice(0, 10) >= AVVISO_DEL
+          ? h('span', { class: 'etichetta verde' }, 'Letto il ' + fmtQuando(p.avviso_letto_il))
+          : h('span', { class: 'etichetta' }, 'Non ancora letto')),
       h('td', { class: 'blocco', 'data-l': 'Dispositivi' }, disp.length
         ? h('ul', { style: 'margin:0;padding-left:18px' }, disp.map(d => h('li', null, (d.descrizione || '?') + ' · ultimo accesso ' + fmtQuando(d.ultimo_accesso))))
         : h('span', { class: 'tenue' }, 'Nessuno')),
@@ -1485,7 +1551,7 @@ async function vistaAccessi() {
   riempi(corpo(),
     h('div', { class: 'intestazione' }, h('h2', null, 'Accessi'), h('p', null, 'Chi può entrare e da quali dispositivi')),
     h('div', { class: 'tabella-box' }, h('table', { class: 't' },
-      h('thead', null, h('tr', null, ['Sub', 'Accesso', 'Dispositivi', ''].map(t => h('th', null, t)))),
+      h('thead', null, h('tr', null, ['Sub', 'Accesso', 'Avviso assegnazioni', 'Dispositivi', ''].map(t => h('th', null, t)))),
       h('tbody', null, schede))));
   disegnaBarra();
 }
@@ -1565,6 +1631,7 @@ function apriMenu() {
     h('h3', null, sub ? 'Aiuto' : 'Menu'),
     h('div', { class: 'menu-aiuto' },
       sub ? h('button', { class: 'tasto pieno', onclick: () => { f.chiudi(); apriGuida(0); } }, ico('aiuto'), 'Come funziona Note Av') : null,
+      sub ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); apriAvviso(false); } }, ico('attenzione'), 'Avviso sulle assegnazioni') : null,
       standalone() ? null : h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); installa(); } }, ico(TELEFONO ? 'telefono' : 'schermo'), TELEFONO ? 'Metti Note Av sul telefono' : 'Installa Note Av sul computer'),
       avvisi,
       h('p', { class: 'nota-piccola' }, testoAggiornato() + '. I pezzi si aggiornano circa ogni 2 ore; le note arrivano subito.'),

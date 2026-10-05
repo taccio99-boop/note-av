@@ -431,6 +431,15 @@ input.data:focus { border-color: var(--accent); outline: none; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: 16px;
 }
 .banner > svg { width: 30px; height: 30px; flex: none; }
+/* Avviso sulle assegnazioni: fisso in cima alla pagina Lavoro del Sub */
+.avviso-fisso { display: flex; gap: 12px; align-items: flex-start; background: var(--accent-2); border: 2px solid var(--accent); border-radius: var(--raggio); padding: 14px 16px; margin: 0 0 16px; font-size: 16px; line-height: 1.45; }
+.avviso-fisso > svg { width: 28px; height: 28px; flex: none; color: var(--accent); margin-top: 1px; }
+.avviso-fisso b { color: var(--accent); }
+.avviso-fisso .link { padding: 2px 0; }
+.avviso-testo { font-size: 17px; line-height: 1.5; }
+.avviso-testo p { margin: 10px 0; }
+.avviso-testo ul { margin: 6px 0 10px; padding-left: 22px; }
+.avviso-testo li { margin: 4px 0; }
 .banner.allarme { background: var(--danger-2); border-color: var(--danger); color: var(--ink); }
 #inviti:not(:empty) { padding: 0 16px; }
 .banner span { flex: 1 1 220px; }

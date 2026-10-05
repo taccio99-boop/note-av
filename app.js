@@ -388,7 +388,7 @@ async function dopoAccesso(chi) {
   // chiede al browser di non cancellare i dati salvati (sessione compresa) quando manca spazio
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
-  if (S.io === 'admin') {
+  if (S.io === 'admin' && !chi.senza_verifica) {
     const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
     if (!aal || aal.currentLevel !== 'aal2') {
       return aal && aal.nextLevel === 'aal2' ? vistaVerifica() : vistaIscrizioneVerifica();

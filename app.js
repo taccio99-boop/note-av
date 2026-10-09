@@ -74,6 +74,16 @@ const SOLE = '<svg viewBox="0 0 64 64" aria-hidden="true"><g style="stroke:var(-
   '<line x1="13" y1="13" x2="18" y2="18"/><line x1="46" y1="46" x2="51" y2="51"/><line x1="13" y1="51" x2="18" y2="46"/><line x1="46" y1="18" x2="51" y2="13"/></g>' +
   '<circle cx="32" cy="32" r="13" style="fill:var(--sole)"/></svg>';
 
+// READLY, la micro AI che compila i Rientri: robottino stile EVE (scelto il
+// 09/10). Colori pieni, niente sfumature: si ripete piu' volte nella pagina.
+// Solo nelle parti dell'Admin: il Sub legge «Abbiamo capito», senza READLY.
+const READLY_ICONA = '<svg class="readly-ico" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="58" fill="#F79A3E"/>' +
+  '<ellipse cx="60" cy="42" rx="25" ry="21" fill="#f4f7fa"/><ellipse cx="60" cy="44" rx="19" ry="11" fill="#101820"/>' +
+  '<ellipse cx="52.5" cy="44" rx="4.6" ry="2.8" fill="#5cc8ff" transform="rotate(-14 52.5 44)"/>' +
+  '<ellipse cx="67.5" cy="44" rx="4.6" ry="2.8" fill="#5cc8ff" transform="rotate(14 67.5 44)"/>' +
+  '<path d="M38 70C38 62 82 62 82 70C82 92 70 104 60 104C50 104 38 92 38 70Z" fill="#f4f7fa"/>' +
+  '<path d="M36 70C30 76 30 86 34 92M84 70C90 76 90 86 86 92" stroke="#e2e8ee" stroke-width="7" fill="none" stroke-linecap="round"/></svg>';
+
 // Icone a tratto (24x24), del colore del testo.
 const ICONE = {
   note: '<path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M7 9.5h10M7 13h6"/>',
@@ -142,6 +152,7 @@ function ico(nome) {
 }
 
 function logo() { const l = h('div', { class: 'logo' }); l.append(svg(ICONA)); return l; }
+function readly() { return svg(READLY_ICONA); }
 
 const pad = n => String(n).padStart(2, '0');
 const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
@@ -615,7 +626,7 @@ function disegna() {
     h('nav', { class: 'schede' + (sub ? ' larghe' : ''), role: 'tablist' },
       viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), 'data-vista': v,
           onclick: () => v === 'rientri' ? apriRientri() : vai(v) },
-        ico(ICONE_VISTA[v]), h('span', null, NOMI_VISTA[S.io][v]),
+        v === 'rientri' ? readly() : ico(ICONE_VISTA[v]), h('span', null, NOMI_VISTA[S.io][v]),
         v === 'righe' ? h('span', { class: 'conta nascosto' }) : null))));
   const corpo = h('main', { id: 'corpo' }, h('div', { class: 'caricamento' }, h('span', { class: 'punto' })));
   app.replaceChildren(testata, h('div', { id: 'inviti' }), corpo, h('div', { id: 'barra' }));
@@ -784,6 +795,8 @@ function disegnaRighe() {
       testoBolle(r.bolle, 'dal', 'dal'), testoBolle(r.riconsegnate, 'il', 'il')]) }]);
   const intest = h('div', { class: 'intestazione' },
     h('h2', null, S.archivio ? 'Archivio' : 'Righe'), elenco.length ? tastoExcel(excelRighe) : null,
+    S.archivio ? null : h('button', { class: 'tasto piccolo chiaro', type: 'button', onclick: apriCaricaPrevisionale },
+      readly(), 'Carica previsionale'),
     h('p', null, S.archivio
       ? elenco.length + ' commesse chiuse con note'
       : elenco.length + ' commesse in casa · ' + pz(totAperte) + ' pezzi aperti'
@@ -902,7 +915,7 @@ function schedaRiga(r, s) {
 function capitoDi(risposta, perSub) {
   const t = risposta && S.capito.get(risposta.id);
   if (!t) return null;
-  return h('p', { class: 'capito' }, ico('fatto'),
+  return h('p', { class: 'capito' }, perSub ? ico('fatto') : readly(),
     h('span', null, h('b', null, perSub ? 'Abbiamo capito: ' : 'READLY: '), t,
       perSub ? h('span', { class: 'tenue' }, ' Se non è giusto, riscrivi la risposta.') : null));
 }
@@ -929,6 +942,76 @@ function apriTelefono(r) {
     h('p', { style: 'margin:0 0 8px' }, 'Scrivi quello che ti ha detto. Vale subito, senza INVIA: ' + nomeSub(r.sub_id) + ' la vede nella sua scheda e READLY compila i Rientri.'),
     area, h('div', { style: 'margin-top:12px' }, tasto));
   area.focus();
+}
+
+/* Carica previsionale: la riserva della posta. Un previsionale arrivato su
+   WhatsApp, o che READLY non ha letto da solo: l'Admin carica l'Excel, READLY
+   (sul PC dell'ufficio) lo legge al giro dopo come quelli della posta e qui
+   si vede cosa ha messo nei Rientri, con «Annulla». */
+function apriCaricaPrevisionale() {
+  const scelta = h('select', null, h('option', { value: '' }, 'Lo dice il file (colonna SUB)'),
+    S.subs.map(s => h('option', { value: s.id }, s.nome)));
+  const file = h('input', { type: 'file', accept: '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const esito = h('div', { class: 'carica-esito' });
+  const tasto = h('button', { class: 'tasto pieno', type: 'button', onclick: () => carica() }, readly(), 'Carica e fai leggere a READLY');
+  finestra(h('h3', null, 'Carica previsionale'),
+    h('p', { style: 'margin:0 0 12px' }, 'Per un previsionale arrivato fuori dalla posta (WhatsApp, chiavetta) o che READLY non ha letto da solo. '
+      + 'Serve il file «In Casa Fornitore» compilato dal Sub.'),
+    h('label', { class: 'campo' }, h('span', null, 'Il file Excel'), file),
+    h('label', { class: 'campo' }, h('span', null, 'Di quale Sub'), scelta),
+    tasto, esito);
+
+  async function carica() {
+    const x = file.files && file.files[0];
+    if (!x) { toast('Scegli il file Excel.'); return; }
+    if (!/\.xlsx$/i.test(x.name)) { toast('Serve un file Excel (.xlsx).'); return; }
+    if (x.size > 3 * 1024 * 1024) { toast('Il file è troppo grande.'); return; }
+    tasto.disabled = true;
+    try {
+      const dati = await new Promise((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result).split(',')[1] || '');
+        r.onerror = () => ko(r.error);
+        r.readAsDataURL(x);
+      });
+      const id = await q(sb.rpc('carica_previsionale', { p_sub: scelta.value || null, p_nome: x.name, p_dati: dati }));
+      attendi(id, false);
+    } catch (e) { tasto.disabled = false; gestisciErrore(e, 'previsionale'); }
+  }
+
+  // READLY gira sul PC dell'ufficio e guarda ogni mezzo minuto: si aspetta fino a 2 minuti
+  async function attendi(id, annullando) {
+    riempi(esito, h('p', { class: 'attesa' }, h('span', { class: 'punto' }),
+      annullando ? 'READLY sta rimettendo i Rientri com’erano…' : 'File caricato. READLY lo sta leggendo…'));
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (!esito.isConnected) return;
+      let p;
+      try { p = await q(sb.from('previsionale_caricato').select('stato,esito').eq('id', id).single()); } catch (e) { continue; }
+      if (annullando ? p.stato === 'annullato' : !['da_leggere', 'annullare'].includes(p.stato)) { mostra(id, p); return; }
+    }
+    riempi(esito, h('p', null, annullando
+      ? 'La richiesta è salvata: READLY rimette i Rientri appena il PC dell’ufficio è acceso.'
+      : 'Il file è salvato: READLY lo legge appena il PC dell’ufficio è acceso, e lo vedrai nei Rientri.'));
+  }
+
+  function mostra(id, p) {
+    const e = p.esito || {};
+    if (p.stato === 'annullato') { riempi(esito, h('p', { class: 'capito' }, ico('fatto'), h('span', null, 'Annullato: i Rientri sono tornati com’erano.'))); return; }
+    if (p.stato === 'scartato') { riempi(esito, h('p', { class: 'errore' }, e.motivo || 'READLY non è riuscito a leggere il file.')); return; }
+    const plur = (n, uno, tanti) => n + ' ' + (n === 1 ? uno : tanti);
+    riempi(esito,
+      (e.sub || []).map(s => h('p', { class: 'capito' }, readly(), h('span', null,
+        h('b', null, s.nome + ': '), plur(s.commesse, 'commessa', 'commesse') + ' e ' + pz(s.pz) + ' pz messi nei Rientri.',
+        s.contestate.length ? h('span', { class: 'tenue' }, ' Quantità diverse dalle nostre su ' + plur(s.contestate.length, 'commessa.', 'commesse.')) : null,
+        s.scartate.length ? h('span', { class: 'tenue' }, ' Non sono sue: ' + s.scartate.join(', ') + '.') : null,
+        s.piu_nuove.length ? h('span', { class: 'tenue' }, ' Lasciate com’erano perché il Sub ha risposto dopo: ' + s.piu_nuove.join(', ') + '.') : null))),
+      (e.sub || []).some(s => s.annulla) ? h('button', { class: 'tasto piccolo chiaro', type: 'button', style: 'margin-top:10px', onclick: async ev => {
+        ev.currentTarget.disabled = true;
+        try { await q(sb.rpc('annulla_previsionale_caricato', { p_id: id })); attendi(id, true); }
+        catch (err) { gestisciErrore(err, 'previsionale'); }
+      } }, 'Annulla') : null);
+  }
 }
 
 function rigaRighe(r, s, conSub) {

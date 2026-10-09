@@ -249,6 +249,11 @@ textarea.nota::placeholder { font-style: italic; color: var(--ink-3); }
 .capito { display: flex; gap: 6px; align-items: flex-start; margin: 8px 0 0; font-size: 14px; color: var(--verde); line-height: 1.4; }
 .capito svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
 .capito .tenue { color: var(--ink-2); }
+.capito svg.readly-ico { width: 18px; height: 18px; margin-top: 1px; }
+/* Carica previsionale (Admin) */
+.campo select, .campo input[type="file"] { width: 100%; min-height: 48px; border-radius: 14px; border: 2px solid var(--line); background: var(--bg); padding: 8px 12px; font-size: 16px; }
+.carica-esito { margin-top: 14px; }
+.carica-esito .attesa { display: flex; align-items: center; gap: 12px; color: var(--ink-2); margin: 0; }
 .al-telefono { display: flex; gap: 6px; align-items: center; margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
 .al-telefono svg { width: 16px; height: 16px; flex: none; }
 .testo-nota { white-space: pre-wrap; min-width: 160px; }

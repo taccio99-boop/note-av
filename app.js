@@ -28,6 +28,7 @@ const S = {
   evidenza: {},         // sub_id -> soglia delle Righe "nuove" al momento dell'apertura
   daLeggere: 0,         // commesse con novita' dall'altra parte (pallino sulla scheda)
   cerca: '',            // testo della ricerca nelle Righe
+  capito: new Map(),    // messaggio_id -> "Abbiamo capito: ..." di READLY
   archivio: false,
   lunedi: null,
   splashFatto: false,
@@ -55,8 +56,8 @@ const AVVISO_TESTO = [
   ['p', 'In questa app vedi le commesse e le quantità che ti sono assegnate ', ['b', 'in questo momento'], '.'],
   ['p', 'Firenze Moda si riserva di ', ['b', 'cambiare in qualsiasi momento l’assegnazione della merce'], ', e quindi delle commesse, in base alle esigenze della produzione e dei clienti. Per esempio può:'],
   ['ul', ['li', 'spostare una commessa, tutta o in parte, a un altro laboratorio;'], ['li', 'cambiare le quantità;'], ['li', 'anticipare o rimandare un lavoro.']],
-  ['p', 'Quello che vedi qui serve a organizzarci meglio e ', ['b', 'non è un impegno'], ' su lavori o quantità futuri. Valgono le bollette e gli accordi presi con l’Ufficio Produzione.'],
-  ['p', 'Se una commessa cambia o sparisce dalla tua lista e hai un dubbio, chiama l’Ufficio Produzione.'],
+  ['p', 'Quello che vedi qui serve a organizzarci meglio e ', ['b', 'non è un impegno'], ' su lavori o quantità futuri. Valgono le bollette e gli accordi presi con l’Ufficio Avanzamento Produzione.'],
+  ['p', 'Se una commessa cambia o sparisce dalla tua lista e hai un dubbio, chiama l’Ufficio Avanzamento Produzione.'],
 ];
 const GIORNI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 const TINTE = ['#c2541a', '#d4880f', '#2f855a', '#b0476b', '#3d7ea6', '#8a6a1f', '#6b5bb0', '#a0522d', '#2f7f7a'];
@@ -239,7 +240,7 @@ window.addEventListener('appinstalled', () => { S.promptInstalla = null; toast('
 async function avvio() {
   if (!sb) {
     app.replaceChildren(h('div', { class: 'accesso' }, h('div', { class: 'scheda-accesso' }, marchio(),
-      h('p', { class: 'errore' }, 'Configurazione mancante: avvisa l’ufficio produzione.'))));
+      h('p', { class: 'errore' }, 'Configurazione mancante: avvisa l’Ufficio Avanzamento Produzione.'))));
     return;
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -310,7 +311,7 @@ function vistaSenzaRete() {
 
 function marchio(sotto) {
   return h('div', { class: 'marchio' }, logo(),
-    h('div', null, h('h1', null, 'Note Av'), h('p', null, sotto || 'Il filo diretto con l’ufficio produzione')));
+    h('div', null, h('h1', null, 'Note Av'), h('p', null, sotto || 'Il filo diretto con l’Ufficio Avanzamento Produzione')));
 }
 
 // Le password di Note Av sono 4 gruppi da 4 lettere maiuscole o cifre: chi
@@ -353,7 +354,7 @@ function vistaAccesso(messaggio) {
     h('label', { class: 'campo' }, h('span', null, 'Nome utente'), utente),
     h('label', { class: 'campo' }, h('span', null, 'Password'), h('div', { class: 'con-occhio' }, password, occhio)),
     tasto,
-    h('p', { class: 'nota-piccola' }, 'Nome utente e password sono nel messaggio che ti ha mandato l’ufficio produzione. Dopo l’accesso resti collegato per 30 giorni.'));
+    h('p', { class: 'nota-piccola' }, 'Nome utente e password sono nel messaggio che ti ha mandato l’Ufficio Avanzamento Produzione. Dopo l’accesso resti collegato per 30 giorni.'));
   const invito = conInstalla ? h('div', { class: 'installa' },
     h('h2', null, h('span', { class: 'passo-n' }, '1'), 'Metti Note Av sul telefono'),
     h('p', null, IOS
@@ -530,12 +531,19 @@ function subVisibili() {
 async function caricaRighe() {
   const ids = subVisibili();
   if (!ids.length) { S.righe = []; S.msgs = []; S.invii = []; return; }
-  const [righe, msgs, invii] = await Promise.all([
+  const [righe, msgs, invii, capito] = await Promise.all([
     q(sb.from('riga').select('*').in('sub_id', ids)),
     q(sb.from('messaggio').select('*').in('sub_id', ids).order('id')),
     q(sb.from('invio').select('*').in('sub_id', ids).is('letto_il', null)),
+    facoltativo(sb.from('capito').select('messaggio_id,testo').in('sub_id', ids)),
   ]);
   S.righe = righe; S.msgs = msgs; S.invii = invii;
+  S.capito = new Map(capito.map(c => [c.messaggio_id, c.testo]));
+}
+
+// Dati di READLY: se non ci sono (ancora), la pagina va avanti senza.
+async function facoltativo(promessa) {
+  try { const { data, error } = await promessa; return error ? [] : (data || []); } catch (e) { return []; }
 }
 
 async function caricaMessaggi(subId) {
@@ -866,7 +874,10 @@ function schedaRiga(r, s) {
     sola
       ? (s.risposta && s.risposta.testo ? h('div', null, h('b', null, 'La tua risposta: '), h('span', { class: 'testo-nota' }, s.risposta.testo)) : null)
       : h('div', { class: 'risposta-box' }, h('label', { for: idCampo }, 'La tua risposta'),
-          areaTesto(r, 'risposta', testoRisp, mostra, idCampo)),
+          areaTesto(r, 'risposta', testoRisp, mostra, idCampo),
+          !s.bRisposta && s.risposta && s.risposta.al_telefono
+            ? h('p', { class: 'al-telefono' }, ico('telefono'), 'Risposta presa al telefono dall’Ufficio Avanzamento Produzione · ' + fmtQuando(s.risposta.inviata_il)) : null,
+          !s.bRisposta ? capitoDi(s.risposta, true) : null),
     h('div', { class: 'data-box' }, h('label', null, ico('storico'), ' Quando consegni?'),
       sola ? h('b', null, s.dataEff ? fmtData(s.dataEff) : '—')
         : [inputData(r, s.dataEff, mostra), h('span', { class: 'tenue' }, 'se lo sai')]),
@@ -874,6 +885,39 @@ function schedaRiga(r, s) {
     h('div', { class: 'piedino' },
       r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base') : null,
       h('button', { class: 'link', onclick: () => apriStorico(r) }, 'Messaggi precedenti')));
+}
+
+// "Abbiamo capito: ..." di READLY sotto una Risposta (al Sub senza nominare READLY).
+function capitoDi(risposta, perSub) {
+  const t = risposta && S.capito.get(risposta.id);
+  if (!t) return null;
+  return h('p', { class: 'capito' }, ico('fatto'),
+    h('span', null, h('b', null, perSub ? 'Abbiamo capito: ' : 'READLY: '), t,
+      perSub ? h('span', { class: 'tenue' }, ' Se non è giusto, riscrivi la risposta.') : null));
+}
+
+/* L'Admin scrive la Risposta che il Sub gli ha dato al telefono: vale subito,
+   il Sub la vede nella sua scheda, READLY la legge come le altre. */
+function apriTelefono(r) {
+  const area = h('textarea', { class: 'nota', rows: '3', maxlength: '2000',
+    placeholder: 'Es.: 30 pz giovedì, il resto lunedì. Mancano le fodere.' });
+  const tasto = h('button', { class: 'tasto pieno', onclick: async () => {
+    if (!area.value.trim()) { area.focus(); return; }
+    tasto.disabled = true;
+    try {
+      await q(sb.rpc('risposta_al_telefono', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: area.value }));
+      f.chiudi();
+      toast('Risposta salvata: READLY la legge entro un minuto.');
+      await caricaMessaggi(r.sub_id);
+      disegnaRighe();
+    } catch (e) { tasto.disabled = false; gestisciErrore(e, 'telefono'); }
+  } }, ico('fatto'), 'Salva la risposta');
+  const f = finestra(
+    h('h3', null, 'Ha risposto al telefono'),
+    h('p', { class: 'tenue', style: 'margin:0 0 10px' }, nomeSub(r.sub_id) + ' · ' + r.commessa + ' · in casa ' + pz(r.aperte) + ' pz'),
+    h('p', { style: 'margin:0 0 8px' }, 'Scrivi quello che ti ha detto. Vale subito, senza INVIA: ' + nomeSub(r.sub_id) + ' la vede nella sua scheda e READLY compila i Rientri.'),
+    area, h('div', { style: 'margin-top:12px' }, tasto));
+  area.focus();
 }
 
 function rigaRighe(r, s, conSub) {
@@ -905,7 +949,9 @@ function rigaRighe(r, s, conSub) {
   // Risposta (scrive il Sub)
   const cellaRisp = h('td', { class: 'blocco', 'data-l': 'Risposta' },
     h('div', { class: 'testo-nota' + (s.risposta && s.risposta.testo ? '' : ' vuota') }, s.risposta && s.risposta.testo ? s.risposta.testo : 'Nessuna risposta'),
-    s.risposta ? h('span', { class: 'chi-quando' }, fmtQuando(s.risposta.inviata_il)) : null);
+    s.risposta ? h('span', { class: 'chi-quando' }, (s.risposta.al_telefono ? '📞 Presa al telefono · ' : '') + fmtQuando(s.risposta.inviata_il)) : null,
+    capitoDi(s.risposta, false),
+    sola ? null : h('button', { class: 'link', style: 'font-size:13px', onclick: () => apriTelefono(r) }, '📞 Ha risposto al telefono'));
   // Data Prevista (la possono mettere entrambi)
   const chiData = s.bData ? 'Da inviare' : s.data ? (s.data.autore === 'admin' ? 'Messa dall’ufficio ' : 'Messa dal Sub ') + fmtQuando(s.data.inviata_il) : null;
   const segnoData = h('span', { class: 'chi-quando' + (s.bData ? ' da-inviare' : '') }, chiData || '');
@@ -960,7 +1006,7 @@ function salvaPresto(r, tipo, valori, mostra) {
 
 function areaTesto(r, tipo, valore, mostra, id) {
   const area = h('textarea', { class: 'nota', rows: '2', maxlength: '2000', value: valore || '', id,
-    placeholder: tipo === 'nota' ? 'Scrivi una nota per il Sub…' : 'Scrivi qui la tua risposta…',
+    placeholder: tipo === 'nota' ? 'Scrivi una nota per il Sub…' : 'Es.: 35 pz domani, il resto venerdì. Mancano le fodere.',
     oninput: () => salvaPresto(r, tipo, { p_testo: area.value }, mostra) });
   return area;
 }
@@ -1075,7 +1121,7 @@ function avvisoFisso() {
 function apriStorico(r) {
   const voci = S.msgs.filter(m => m.sub_id === r.sub_id && m.commessa === r.commessa && m.inviata_il)
     .sort((a, b) => (a.inviata_il < b.inviata_il ? 1 : -1));
-  const chi = m => m.autore === 'admin' ? 'Ufficio produzione' : nomeSub(m.sub_id);
+  const chi = m => m.autore === 'admin' ? 'Ufficio Avanzamento Produzione' : nomeSub(m.sub_id);
   const cosa = m => m.tipo === 'data' ? 'Data prevista: ' + (m.data ? fmtData(m.data) : 'tolta') : (m.testo || '(testo cancellato)');
   const f = finestra(
     h('h3', null, (S.io === 'sub' ? 'Messaggi ' : 'Storico ') + r.commessa),
@@ -1444,11 +1490,13 @@ function campoTarget(subId, tg) {
 
 async function vistaBacheca() {
   const giorno = await q(sb.rpc('giorno_bacheca'));
-  const [pos, invii, eventi] = await Promise.all([
+  const [pos, invii, eventi, contatori] = await Promise.all([
     q(sb.from('bacheca').select('*').eq('giorno', giorno)),
     q(sb.from('invio').select('*').eq('da', 'sub').is('letto_il', null)),
     q(sb.from('evento').select('*').is('letto_il', null).order('id', { ascending: false })),
+    facoltativo(sb.from('contatori').select('*')),
   ]);
+  const conta = new Map(contatori.map(c => [c.sub_id, c]));
   S.invii = invii;
   S.daLeggere = invii.reduce((t, i) => t + (i.quante || 1), 0);
   aggiornaConta();
@@ -1468,7 +1516,7 @@ async function vistaBacheca() {
       ondragstart: ev => { ev.dataTransfer.setData('text/plain', s.id); c.classList.add('trascina'); },
       ondragend: () => c.classList.remove('trascina'),
       onclick: () => menu.classList.toggle('nascosto') },
-      iniziale, h('div', { class: 'nome' }, s.nome),
+      iniziale, h('div', { class: 'nome' }, s.nome, contaCartellino(conta.get(s.id))),
       nonLetti.has(s.id) ? h('span', { class: 'pallino', title: 'Risposte nuove' }) : null);
     return [c, menu];
   };
@@ -1509,6 +1557,20 @@ async function vistaBacheca() {
     fermi.length ? h('div', { class: 'senza-lavoro' }, h('h3', null, 'Sub senza lavoro'),
       h('div', { class: 'bacheca' }, h('div', null, fermi.map(cartellino)))) : null);
   disegnaBarra();
+}
+
+// I numeri di READLY sul Cartellino: da chiamare, mancanze, quantita' contestate.
+function contaCartellino(c) {
+  if (!c) return null;
+  const voci = [
+    [c.da_chiamare, '📞', 'Righe da chiamare: READLY non sa quando rientrano'],
+    [c.mancanze, '⚠', 'Righe con Mancanze Segnalate'],
+    [c.contestate, '≠', 'Quantità contestate: il Sub dichiara numeri diversi dai nostri'],
+    [c.previsionale_mancante ? 1 : 0, '📄', 'Previsionale della settimana non ancora arrivato'],
+  ].filter(v => v[0] > 0);
+  if (!voci.length) return null;
+  return h('div', { class: 'conta-readly' }, voci.map(([n, segno, titolo]) =>
+    h('span', { title: titolo }, segno + (segno === '📄' ? '' : ' ' + n))));
 }
 
 async function sposta(subId, colonna) {
@@ -1563,14 +1625,14 @@ async function vistaAccessi() {
 const SCHEDA_FINTA = '<rect x="20" y="10" width="260" height="150" rx="18" style="fill:var(--surface);stroke:var(--line)" stroke-width="2"/>';
 const PASSI_GUIDA = [
   { titolo: 'L’ufficio ti scrive',
-    testo: 'Quando ha bisogno di sapere qualcosa su una commessa, l’ufficio produzione ti scrive una nota. La trovi nel riquadro giallo.',
+    testo: 'Quando ha bisogno di sapere qualcosa su una commessa, l’Ufficio Avanzamento Produzione ti scrive una nota. La trovi nel riquadro giallo.',
     disegno: SCHEDA_FINTA +
       '<rect x="38" y="28" width="92" height="14" rx="6" style="fill:var(--ink-3)"/><rect x="198" y="25" width="64" height="20" rx="8" style="fill:var(--sole)"/>' +
       '<rect x="38" y="60" width="224" height="80" rx="14" style="fill:var(--sole-2);stroke:var(--sole-bordo)" stroke-width="2"/>' +
       '<rect x="54" y="78" width="150" height="10" rx="5" style="fill:var(--ink-2)"/><rect x="54" y="98" width="188" height="10" rx="5" style="fill:var(--ink-3)"/>' +
       '<rect x="54" y="118" width="118" height="10" rx="5" style="fill:var(--ink-3)"/>' },
   { titolo: 'Tu rispondi',
-    testo: 'Scrivi la risposta nel riquadro bianco. Se sai quando consegni, scegli anche la data. Si salva da solo mentre scrivi.',
+    testo: 'Scrivi nel riquadro bianco quanti pezzi consegni e quando, per esempio «35 pz domani, il resto venerdì». Se ti manca qualcosa, scrivilo. Si salva da solo mentre scrivi.',
     disegno: SCHEDA_FINTA +
       '<rect x="38" y="26" width="224" height="66" rx="12" style="fill:var(--surface);stroke:var(--accent)" stroke-width="3"/>' +
       '<rect x="52" y="44" width="140" height="10" rx="5" style="fill:var(--ink-2)"/><rect x="52" y="64" width="86" height="10" rx="5" style="fill:var(--ink-3)"/>' +
@@ -1637,7 +1699,7 @@ function apriMenu() {
       h('p', { class: 'nota-piccola' }, testoAggiornato() + '. I pezzi si aggiornano circa ogni 2 ore; le note arrivano subito.'),
       TELEFONO ? null : h('div', { class: 'qr-telefono' }, h('img', { src: 'icone/qr-note-av.svg', alt: 'Codice QR di Note Av' }),
         h('span', null, 'Vuoi Note Av anche sul telefono? Inquadra questo codice con la fotocamera.')),
-      sub ? h('p', { class: 'nota-piccola' }, 'Hai bisogno? Chiama l’ufficio produzione.') : null,
+      sub ? h('p', { class: 'nota-piccola' }, 'Hai bisogno? Chiama l’Ufficio Avanzamento Produzione.') : null,
       h('button', { class: 'tasto chiaro pieno', onclick: () => {
         if (sub && !confirm('Vuoi davvero uscire? Per rientrare ti serviranno nome utente e password.')) return;
         f.chiudi(); esci();

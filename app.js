@@ -36,10 +36,10 @@ const S = {
 };
 
 const NOMI_VISTA = {
-  admin: { bacheca: 'Bacheca', righe: 'Righe', carico: 'Carico', consegne: 'Consegne', accessi: 'Accessi' },
+  admin: { bacheca: 'Bacheca', righe: 'Righe', carico: 'Carico', consegne: 'Consegne', rientri: 'Rientri', accessi: 'Accessi' },
   sub: { righe: 'Note', carico: 'Lavoro', consegne: 'Consegne' },
 };
-const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', accessi: 'chiave' };
+const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave' };
 const COLONNE = [
   ['da_controllare', 'Da controllare'],
   ['in_attesa', 'In attesa di risposta'],
@@ -99,6 +99,7 @@ const ICONE = {
   attenzione: '<path d="M12 3 2 20h20z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>',
   lente: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/>',
   excel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+  robot: '<ellipse cx="12" cy="7.5" rx="6" ry="4.5"/><path d="M9.5 7.5h.01M14.5 7.5h.01"/><path d="M7.5 14c0-1.5 9-1.5 9 0 0 4-2 6.5-4.5 6.5S7.5 18 7.5 14z"/>',
   grafico: '<path d="M3 20h18"/><rect x="5" y="11" width="3" height="7" rx="1"/><rect x="10.5" y="6" width="3" height="12" rx="1"/><rect x="16" y="9" width="3" height="9" rx="1"/>',
 };
 
@@ -602,7 +603,7 @@ function testoAggiornato() {
 
 function disegna() {
   const sub = S.io === 'sub';
-  const viste = sub ? ['righe', 'carico', 'consegne'] : ['bacheca', 'righe', 'carico', 'consegne', 'accessi'];
+  const viste = sub ? ['righe', 'carico', 'consegne'] : ['bacheca', 'righe', 'carico', 'consegne', 'rientri', 'accessi'];
   const titolo = sub ? nomeSub(S.chi.sub_id) : 'Note Av';
   const testata = h('header', { class: 'testata' },
     h('div', { class: 'riga1' }, logo(),
@@ -612,7 +613,8 @@ function disegna() {
         ico('grafico'), h('span', null, 'Avanzamento')) : null,
       h('button', { class: 'aiuto', onclick: apriMenu, 'aria-label': sub ? 'Aiuto' : 'Menu' }, ico(sub ? 'aiuto' : 'menu'), sub ? 'Aiuto' : 'Menu')),
     h('nav', { class: 'schede' + (sub ? ' larghe' : ''), role: 'tablist' },
-      viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), 'data-vista': v, onclick: () => vai(v) },
+      viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), 'data-vista': v,
+          onclick: () => v === 'rientri' ? apriRientri() : vai(v) },
         ico(ICONE_VISTA[v]), h('span', null, NOMI_VISTA[S.io][v]),
         v === 'righe' ? h('span', { class: 'conta nascosto' }) : null))));
   const corpo = h('main', { id: 'corpo' }, h('div', { class: 'caricamento' }, h('span', { class: 'punto' })));
@@ -621,6 +623,15 @@ function disegna() {
   aggiornaInviti();
   ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
+}
+
+/* Il Tabellone dei Rientri sta nell'Avanzamento Produzione (rete dell'ufficio):
+   dal PC si apre li', sulla sua pagina; dal telefono si spiega dove trovarlo. */
+function apriRientri() {
+  if (!TELEFONO) { window.open((CFG.avanzamentoUrl || 'http://PRODUZIONE-DESK:8090/') + '#rientri', 'avanzamento-produzione'); return; }
+  const f = finestra(h('h3', null, 'Rientri'),
+    h('p', null, 'Il Tabellone dei Rientri, compilato da READLY con le risposte dei Sub, si vede dal PC in ufficio: apri l’Avanzamento Produzione e scegli la pagina «Rientri».'),
+    h('button', { class: 'tasto pieno chiaro', onclick: () => f.chiudi() }, 'Ho capito'));
 }
 
 function aggiornaConta() {

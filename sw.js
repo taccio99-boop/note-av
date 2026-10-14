@@ -4,8 +4,8 @@
    dati: quelli arrivano sempre da Supabase dopo l'accesso. */
 'use strict';
 
-const VERSIONE = 'note-av-v11';
-const FILE = ['./', 'index.html', 'app.css', 'app.js', 'config.js', 'vendor/supabase.min.js',
+const VERSIONE = 'note-av-v12';
+const FILE = ['./', 'index.html', 'app.css', 'app.js', 'lettore_gea.js', 'config.js', 'vendor/supabase.min.js',
   'manifest.webmanifest', 'icone/icona-192.png', 'icone/icona-512.png', 'icone/icona.svg', 'icone/qr-note-av.svg'];
 
 self.addEventListener('install', ev => {

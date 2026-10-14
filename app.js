@@ -111,6 +111,7 @@ const ICONE = {
   excel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
   robot: '<ellipse cx="12" cy="7.5" rx="6" ry="4.5"/><path d="M9.5 7.5h.01M14.5 7.5h.01"/><path d="M7.5 14c0-1.5 9-1.5 9 0 0 4-2 6.5-4.5 6.5S7.5 18 7.5 14z"/>',
   grafico: '<path d="M3 20h18"/><rect x="5" y="11" width="3" height="7" rx="1"/><rect x="10.5" y="6" width="3" height="12" rx="1"/><rect x="16" y="9" width="3" height="9" rx="1"/>',
+  barcode: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13.5 8v8M17 8v8"/>',
 };
 
 /* ---------------------------------------------------------------------------
@@ -313,12 +314,17 @@ function vistaSenzaRete() {
   _riprova = setTimeout(entra, 15000);
   window.addEventListener('online', entra, { once: true });
   const tasto = h('button', { class: 'tasto pieno', onclick: () => { tasto.disabled = true; tasto.textContent = 'Un momento…'; entra(); } }, 'Riprova');
+  // Chi ha lo Sparo spara anche senza rete: gli Spari partono quando torna.
+  const sparo = ricordato('sparo-sub') ? (caricaSpariLocali(), tastoSparo(SP.modo)) : null;
   app.replaceChildren(h('div', { class: 'accesso' }, h('div', { class: 'colonna-accesso' }, h('div', { class: 'scheda-accesso' },
     marchio(),
     h('h2', null, 'Non riesco a collegarmi'),
     h('p', null, 'Controlla che il telefono o il computer sia collegato a internet (Wi-Fi o dati). Riprovo da solo tra pochi secondi.'),
     h('p', { class: 'nota-piccola', style: 'margin:0 0 16px' }, 'Non serve riscrivere la password: il tuo accesso è sempre valido.'),
-    tasto))));
+    tasto,
+    sparo ? h('div', { class: 'sparo-senza-rete' },
+      h('p', { class: 'nota-piccola' }, 'Puoi sparare le bollette lo stesso: restano nel telefono e partono da sole quando torna internet.'),
+      sparo) : null))));
 }
 
 function marchio(sotto) {
@@ -381,6 +387,7 @@ async function esci(messaggio) {
   S.uscendo = true;
   await sb.auth.signOut({ scope: 'local' }).catch(() => {});
   S.uscendo = false;
+  ricorda('sparo-sub', '');     // fuori da Note Av niente tasto «Spara bolletta» (gli Spari in coda restano)
   S.chi = null; S.io = null; S.splashFatto = false;
   clearInterval(_timer);
   fermaRiprova();
@@ -416,6 +423,7 @@ async function dopoAccesso(chi) {
   try { await caricaBase(); } catch (e) { return gestisciErrore(e, 'base'); }
   disegna();
   avviaControlloPeriodico();
+  if (S.io === 'sub') preparaSparo().catch(e => console.warn('sparo', e));
   if (S.io === 'sub') setTimeout(async () => {
     if (!avvisoLetto()) await apriAvviso(true);
     if (!ricordato('guida')) apriGuida(0);
@@ -476,9 +484,14 @@ function vistaCodice(titolo, contenuto, idFattore) {
 }
 
 /* Registro degli accessi: un identificativo casuale per dispositivo. */
-function registraDispositivo() {
+function idDispositivo() {
   let id = ricordato('dispositivo');
   if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); ricorda('dispositivo', id); }
+  return id;
+}
+
+function registraDispositivo() {
+  const id = idDispositivo();
   const sistema = /iPhone/.test(UA) ? 'iPhone' : /iPad/.test(UA) || IOS ? 'iPad' : ANDROID ? 'Android'
     : /Windows/.test(UA) ? 'Windows' : /Mac OS/.test(UA) ? 'Mac' : 'altro';
   const browser = /Edg\//.test(UA) ? 'Edge' : /Chrome\//.test(UA) ? 'Chrome' : /Firefox\//.test(UA) ? 'Firefox' : /Safari\//.test(UA) ? 'Safari' : 'browser';
@@ -630,9 +643,10 @@ function disegna() {
         v === 'righe' ? h('span', { class: 'conta nascosto' }) : null))));
   const corpo = h('main', { id: 'corpo' }, h('div', { class: 'caricamento' }, h('span', { class: 'punto' })));
   app.replaceChildren(testata, h('div', { id: 'inviti' }), corpo, h('div', { id: 'barra' }));
+  document.body.classList.toggle('con-sparo', !!modoSparo());     // piu' spazio in fondo per il tasto
   aggiornaConta();
   aggiornaInviti();
-  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi })[S.vista]()
+  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
 }
 
@@ -1111,26 +1125,31 @@ function inputData(r, valore, mostra) {
   return input;
 }
 
+// La barra in basso: INVIA (nelle Righe, se c'e' qualcosa da mandare) e, per
+// il Sub con lo Sparo, il tasto «Spara bolletta» in tutte le schede.
 function disegnaBarra() {
   const barra = document.getElementById('barra');
   if (!barra) return;
-  if (S.vista !== 'righe' || S.archivio) { barra.replaceChildren(); return; }
+  const sparo = tastoSparo(modoSparo());
+  const metti = (...pezzi) => {
+    const pieni = pezzi.flat().filter(Boolean);
+    if (!pieni.length) { barra.replaceChildren(); return; }
+    const box = h('div', { class: 'barra-invio' }, pieni);
+    if (barra.querySelector('.barra-invio')) box.style.animation = 'none';   // gia' visibile: niente salto
+    barra.replaceChildren(box);
+  };
+  if (S.vista !== 'righe' || S.archivio) return metti(sparo);
   const bozze = bozzePerSub();
   const ids = Object.keys(bozze);
   if (S.io === 'sub') {
     const n = bozze[S.chi.sub_id] || 0;
-    if (!n) { barra.replaceChildren(); return; }
-    const gia = barra.querySelector('.tasto');
-    const tasto = h('button', { class: 'tasto verde', onclick: ev => invia(S.chi.sub_id, ev.currentTarget) }, ico('invia'), 'INVIA ALL’UFFICIO (' + n + ')');
-    const box = h('div', { class: 'barra-invio' }, tasto,
-      h('p', { class: 'spiega' }, n === 1 ? 'Hai scritto su 1 commessa: l’ufficio la vede quando premi INVIA.' : 'Hai scritto su ' + n + ' commesse: l’ufficio le vede quando premi INVIA.'));
-    if (gia) box.style.animation = 'none';   // gia' visibile: niente salto
-    barra.replaceChildren(box);
-    return;
+    if (!n) return metti(sparo);
+    return metti(h('button', { class: 'tasto verde', onclick: ev => invia(S.chi.sub_id, ev.currentTarget) }, ico('invia'), 'INVIA ALL’UFFICIO (' + n + ')'),
+      h('p', { class: 'spiega' }, n === 1 ? 'Hai scritto su 1 commessa: l’ufficio la vede quando premi INVIA.' : 'Hai scritto su ' + n + ' commesse: l’ufficio le vede quando premi INVIA.'),
+      sparo);
   }
-  if (!ids.length) { barra.replaceChildren(); return; }
-  barra.replaceChildren(h('div', { class: 'barra-invio' }, ids.map(id =>
-    h('button', { class: 'tasto', onclick: ev => invia(id, ev.currentTarget) }, ico('invia'), 'Invia a ' + nomeSub(id) + ' (' + bozze[id] + ')'))));
+  metti(ids.map(id =>
+    h('button', { class: 'tasto', onclick: ev => invia(id, ev.currentTarget) }, ico('invia'), 'Invia a ' + nomeSub(id) + ' (' + bozze[id] + ')')));
 }
 
 async function invia(subId, tasto) {
@@ -1584,11 +1603,12 @@ function campoTarget(subId, tg) {
 
 async function vistaBacheca() {
   const giorno = await q(sb.rpc('giorno_bacheca'));
-  const [pos, invii, eventi, contatori] = await Promise.all([
+  const [pos, invii, eventi, contatori, provaSparo] = await Promise.all([
     q(sb.from('bacheca').select('*').eq('giorno', giorno)),
     q(sb.from('invio').select('*').eq('da', 'sub').is('letto_il', null)),
     q(sb.from('evento').select('*').is('letto_il', null).order('id', { ascending: false })),
     facoltativo(sb.from('contatori').select('*')),
+    riquadriProvaSparo(),
   ]);
   const conta = new Map(contatori.map(c => [c.sub_id, c]));
   S.invii = invii;
@@ -1646,6 +1666,7 @@ async function vistaBacheca() {
       h('h2', null, saluto() + '! Ecco il giro di oggi'),
       h('p', null, oggi.charAt(0).toUpperCase() + oggi.slice(1) + ' · si riparte da capo ogni mattina alle 8'))),
     giro,
+    provaSparo.length ? h('div', { class: 'avvisi' }, provaSparo) : null,
     avvisi,
     h('div', { class: 'bacheca' }, colonne),
     fermi.length ? h('div', { class: 'senza-lavoro' }, h('h3', null, 'Sub senza lavoro'),
@@ -1710,6 +1731,447 @@ async function vistaAccessi() {
       h('thead', null, h('tr', null, ['Sub', 'Accesso', 'Avviso assegnazioni', 'Dispositivi', ''].map(t => h('th', null, t)))),
       h('tbody', null, schede))));
   disegnaBarra();
+}
+
+/* ---------------------------------------------------------------------------
+   Sparo delle Bollette (vedi pistola_barcode\decisioni.md)
+   Il Sub con sub.sparo (oggi solo Zeta Due) ha il tasto «Spara bolletta» in
+   tutte le schede e legge il barcode della bolletta con la fotocamera
+   (lettore_gea.js): il 1° Sparo vuol dire iniziata, il 2° Pronta.
+   FASE DI PROVA (sub.sparo = 'prova'): il tasto legge e mostra i popup, ma
+   registra soltanto ogni tentativo (tabella sparo_prova). In Note Av non
+   cambia niente e non partono notifiche; per scegliere il popup (1°, 2° o 3°
+   Sparo) contano gli Spari della prova stessa.
+   Senza internet lo Sparo resta nel telefono e parte quando torna la rete.
+   --------------------------------------------------------------------------- */
+
+const SPARO_ANNULLA_S = 10;      // secondi in cui Martina puo' annullare
+const SPARO_DOPPIO_S = 60;       // 2° Sparo cosi' vicino al 1°: si chiede se e' gia' finita
+const SP = { modo: null, coda: [], storia: [], bolle: null, inviando: false, aperto: false, modello: null };
+
+function leggiJson(k, d) { try { const v = localStorage.getItem('noteav-' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+function scriviJson(k, v) { try { localStorage.setItem('noteav-' + k, JSON.stringify(v)); } catch (e) { /* niente */ } }
+
+// 'prova' | 'attivo' | null: il tasto c'e' solo per il Sub che ha lo Sparo.
+function modoSparo() {
+  if (S.io !== 'sub' || !S.chi) return null;
+  const s = S.subs.find(x => x.id === S.chi.sub_id);
+  return (s && s.sparo) || null;
+}
+
+// Gli Spari salvati nel telefono (servono anche senza rete, prima dell'accesso).
+function caricaSpariLocali() {
+  SP.coda = leggiJson('spari-coda', []);
+  SP.storia = leggiJson('spari-storia', []);
+  SP.bolle = leggiJson('spari-bolle', null);
+  SP.modo = SP.modo || ricordato('sparo-modo') || null;
+}
+
+async function preparaSparo() {
+  SP.modo = modoSparo();
+  ricorda('sparo-sub', SP.modo ? S.chi.sub_id : '');
+  ricorda('sparo-modo', SP.modo || '');
+  if (!SP.modo) return;
+  caricaSpariLocali();
+  if (!SP.ascolta) { SP.ascolta = true; window.addEventListener('online', () => inviaSpari()); }
+  // il modello del telefono (Chrome su Android lo dice solo se lo si chiede)
+  if (!SP.modello && navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+    navigator.userAgentData.getHighEntropyValues(['model', 'platformVersion']).then(d => {
+      SP.modello = [navigator.userAgentData.platform, d.platformVersion, d.model].filter(Boolean).join(' ') || null;
+    }, () => {});
+  }
+  await inviaSpari();
+  await Promise.all([aggiornaStoriaSpari(), aggiornaBolleSparo()]);
+}
+
+const voceStoria = v => ({ uid: v.uid, bolla: v.bolla || null, esito: v.esito, quando: v.quando, annullato_il: v.annullato_il || null });
+
+// Gli Spari gia' arrivati all'ufficio (anche da un altro telefono, o annullati
+// dall'Admin), piu' quelli ancora in coda qui.
+async function aggiornaStoriaSpari() {
+  const dal = new Date(Date.now() - 90 * 86400e3).toISOString();
+  const arrivati = await q(sb.from('sparo_prova').select('uid,bolla,esito,quando,annullato_il')
+    .eq('sub_id', S.chi.sub_id).gte('quando', dal).order('quando'));
+  const inCoda = new Set(SP.coda.map(v => v.uid));
+  SP.storia = arrivati.filter(r => !inCoda.has(r.uid)).concat(SP.coda.map(voceStoria));
+  scriviJson('spari-storia', SP.storia);
+}
+
+// Le bollette del Sub, per capire il caso: in casa (con commessa e pezzi) o
+// gia' riconsegnate. Copia nel telefono per quando manca la rete.
+async function aggiornaBolleSparo() {
+  const righe = await q(sb.from('riga').select('commessa,bolle,riconsegnate').eq('sub_id', S.chi.sub_id));
+  const aperte = {}, rientrate = {};
+  for (const r of righe) {
+    for (const b of r.bolle || []) aperte[b.b] = { c: r.commessa, q: b.q };
+    for (const b of r.riconsegnate || []) rientrate[b.b] = { c: r.commessa, q: b.q };
+  }
+  SP.bolle = { aperte, rientrate, il: new Date().toISOString() };
+  scriviJson('spari-bolle', SP.bolle);
+}
+
+function casoBolletta(bolla) {
+  const b = SP.bolle || { aperte: {}, rientrate: {} };
+  if (b.aperte[bolla]) return { in_dati: 'aperta', commessa: b.aperte[bolla].c, pezzi: b.aperte[bolla].q };
+  if (/^9\d{5}$/.test(bolla)) return { in_dati: 'riparazione' };      // registrata, ma fuori dai conteggi
+  if (b.rientrate[bolla]) return { in_dati: 'rientrata', commessa: b.rientrate[bolla].c, pezzi: b.rientrate[bolla].q };
+  return { in_dati: 'attesa' };                                        // Sparo in Attesa: lo Scarico non l'ha ancora portata
+}
+
+// Gli Spari che contano per lo stato di una bolletta (1° = iniziata, 2° = Pronta).
+function spariValidi(bolla) {
+  return SP.storia.filter(v => v.bolla === bolla && !v.annullato_il && (v.esito === 'iniziata' || v.esito === 'pronta'))
+    .sort((a, b) => (a.quando < b.quando ? -1 : 1));
+}
+
+function tastoSparo(modo) {
+  if (!modo || !window.LettoreBarcodeGea) return null;
+  return h('button', { class: 'tasto spara', type: 'button', onclick: () => sparaBolletta() }, ico('barcode'), 'Spara bolletta',
+    modo === 'prova' ? h('span', { class: 'prova' }, 'prova') : null);
+}
+
+async function sparaBolletta() {
+  if (SP.aperto) return;
+  SP.aperto = true;
+  try {
+    if (S.chi && navigator.onLine !== false) aggiornaBolleSparo().catch(() => {});   // intanto che si inquadra
+    const r = await LettoreBarcodeGea.apri({ titolo: 'Spara bolletta' });
+    if (r.esito === 'letto') await esitoSparo(r);
+    else registraSparo({ esito: r.esito === 'errore' ? 'errore_fotocamera' : 'non_letto', durata_ms: r.durata_ms, video: r.video, nota: r.errore || null });
+  } catch (e) {
+    console.error('sparo', e);
+    toast('Qualcosa non è andato: riprova.');
+  } finally { SP.aperto = false; }
+}
+
+// Lo Sparo e' automatico: letto il codice, si registra subito e il popup
+// lascia 10 secondi per «Annulla». I testi sono quelli approvati.
+async function esitoSparo(r) {
+  const caso = casoBolletta(r.bolla);
+  const dati = Object.assign({ codice: r.codice, bolla: r.bolla, durata_ms: r.durata_ms, fonte: r.fonte,
+    fotogrammi: r.fotogrammi, video: r.video }, caso);
+  const n = 'Bolletta ' + r.bolla;
+  const dettaglio = caso.commessa ? caso.commessa + ' · ' + pz(caso.pezzi) + ' pz' : caso.in_dati === 'riparazione' ? 'Bolletta di riparazione' : null;
+  if (caso.in_dati === 'rientrata') {
+    registraSparo(Object.assign(dati, { esito: 'rientrata' }));
+    return popupSparo('rifiutato', n + ': risulta già rientrata', dettaglio, null);
+  }
+  const prima = spariValidi(r.bolla);
+  if (prima.length >= 2) {
+    registraSparo(Object.assign(dati, { esito: 'gia_pronta' }));
+    return popupSparo('pronta', n + ': è già pronta', dettaglio, null);
+  }
+  if (prima.length === 1) {
+    if (Date.now() - new Date(prima[0].quando).getTime() < SPARO_DOPPIO_S * 1000
+        && !(await domandaSparo('Hai appena iniziato la bolletta ' + r.bolla + '. È già finita?'))) {
+      registraSparo(Object.assign(dati, { esito: 'per_sbaglio' }));
+      return toast('Va bene: la bolletta ' + r.bolla + ' resta iniziata.');
+    }
+    return popupSparo('pronta', n + ' pronta', dettaglio, registraSparo(Object.assign(dati, { esito: 'pronta' })));
+  }
+  return popupSparo('iniziata', n + ' iniziata', dettaglio, registraSparo(Object.assign(dati, { esito: 'iniziata' })));
+}
+
+// Il popup dopo lo Sparo: resta 10 secondi, con «Annulla» se c'e' qualcosa da annullare.
+function popupSparo(tipo, titolo, dettaglio, voce) {
+  let resta = SPARO_ANNULLA_S;
+  const conta = h('b', null, String(resta));
+  const chiudi = () => { clearInterval(timer); f.chiudi(); };
+  const f = finestraObbligata(
+    h('div', { class: 'esito-sparo ' + tipo },
+      h('span', { class: 'segno' }, ico(tipo === 'rifiutato' ? 'attenzione' : tipo === 'pronta' ? 'fatto' : 'barcode')),
+      h('h3', null, titolo), dettaglio ? h('p', null, dettaglio) : null),
+    h('div', { class: 'tasti-sparo' },
+      voce ? h('button', { class: 'tasto chiaro', type: 'button', onclick: () => { chiudi(); annullaSparo(voce); } }, h('span', null, 'Annulla (', conta, ')')) : null,
+      h('button', { class: 'tasto', type: 'button', onclick: chiudi }, 'Ok')),
+    SP.modo === 'prova' ? h('p', { class: 'nota-piccola prova-sparo' }, 'Fase di prova: lo Sparo viene solo registrato, in Note Av per ora non cambia niente.') : null);
+  const timer = setInterval(() => { if (--resta <= 0) chiudi(); else conta.textContent = String(resta); }, 1000);
+}
+
+function domandaSparo(testo) {
+  return new Promise(fatto => {
+    const f = finestraObbligata(h('h3', { class: 'domanda-sparo' }, testo),
+      h('div', { class: 'tasti-sparo colonna' },
+        h('button', { class: 'tasto pieno', type: 'button', onclick: () => { f.chiudi(); fatto(true); } }, 'Sì, è pronta'),
+        h('button', { class: 'tasto chiaro pieno', type: 'button', onclick: () => { f.chiudi(); fatto(false); } }, 'No, ho sparato per sbaglio')));
+  });
+}
+
+const nuovoUid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
+
+function sistemaTelefono() {
+  if (SP.modello) return SP.modello;
+  const ios = UA.match(/OS (\d+)[_.](\d+)/), andr = UA.match(/Android ([\d.]+)/);
+  if (IOS) return (/iPad/.test(UA) ? 'iPad' : 'iPhone') + (ios ? ' iOS ' + ios[1] + '.' + ios[2] : '');
+  if (ANDROID) return 'Android' + (andr ? ' ' + andr[1] : '');
+  return /Windows/.test(UA) ? 'Windows' : /Mac OS/.test(UA) ? 'Mac' : 'altro';
+}
+function browserTelefono() {
+  const ver = re => { const m = UA.match(re); return m ? ' ' + m[1] : ''; };
+  return /Edg\//.test(UA) ? 'Edge' + ver(/Edg\/(\d+)/) : /CriOS\//.test(UA) ? 'Chrome' + ver(/CriOS\/(\d+)/)
+    : /Chrome\//.test(UA) ? 'Chrome' + ver(/Chrome\/(\d+)/) : /Firefox\//.test(UA) ? 'Firefox' + ver(/Firefox\/(\d+)/)
+    : /Safari\//.test(UA) ? 'Safari' + ver(/Version\/(\d+)/) : 'browser';
+}
+const descrizioneTelefono = () => [sistemaTelefono(), browserTelefono(), standalone() ? 'app' : 'nel browser'].join(' · ');
+
+// Ogni tentativo va in coda nel telefono e poi all'ufficio.
+function registraSparo(dati) {
+  const v = Object.assign({ uid: nuovoUid(), quando: new Date().toISOString(),
+    sub_id: (S.chi && S.chi.sub_id) || ricordato('sparo-sub') || null,
+    dispositivo: idDispositivo(), telefono: descrizioneTelefono() }, dati);
+  SP.coda.push(v);
+  SP.storia.push(voceStoria(v));
+  scriviJson('spari-coda', SP.coda);
+  scriviJson('spari-storia', SP.storia);
+  inviaSpari();
+  return v;
+}
+
+// «Annulla» di Martina entro i 10 secondi: se lo Sparo e' gia' partito, si
+// rimanda con l'annullamento (il database lo accetta solo entro i 10 s).
+function annullaSparo(v) {
+  v.annullato_il = new Date().toISOString();
+  const s = SP.storia.find(x => x.uid === v.uid);
+  if (s) s.annullato_il = v.annullato_il;
+  if (!SP.coda.includes(v)) SP.coda.push(v);
+  scriviJson('spari-coda', SP.coda);
+  scriviJson('spari-storia', SP.storia);
+  inviaSpari();
+  toast('Annullato: la bolletta ' + v.bolla + ' torna com’era.');
+}
+
+// Manda all'ufficio gli Spari in coda, uno per volta e in ordine. Senza rete
+// (o con l'accesso da rinnovare) si ferma e riprova piu' tardi.
+async function inviaSpari() {
+  if (SP.inviando || !SP.coda.length || !S.chi || !sb) return;
+  SP.inviando = true;
+  try {
+    for (let giri = SP.coda.length + 2; SP.coda.length && giri > 0; giri--) {
+      const v = SP.coda[0];
+      const mandato = JSON.stringify(v);
+      let error;
+      try { ({ error } = await sb.rpc('registra_sparo_prova', { p: v })); } catch (e) { error = e; }
+      if (error) {
+        const codice = String(error.code || error.status || '');
+        if (erroreDiRete(error) || ['42501', 'PGRST301', 'PGRST303', '401'].includes(codice)) break;
+        console.warn('Sparo non registrato', error);
+        v.rifiuti = (v.rifiuti || 0) + 1;
+        SP.coda.shift();
+        if (v.rifiuti < 5) SP.coda.push(v);            // in fondo: si riprova al giro dopo
+      } else if (JSON.stringify(v) === mandato) SP.coda.shift();   // annullato nel frattempo: si rimanda
+      scriviJson('spari-coda', SP.coda);
+    }
+  } finally { SP.inviando = false; }
+}
+
+/* ---------------------------------------------------------------------------
+   Prova dello Sparo (solo Admin)
+   Ogni tentativo del Sub in prova con il suo giudizio, e il conto: la prova e'
+   superata se almeno il 95% degli Spari e' corretto nelle 48 ore dal primo
+   Sparo, contate solo dal lunedi' al venerdi' (gli Spari del sabato contano,
+   ma non allungano ne' accorciano le 48 ore).
+   Giudizio automatico: corretto se il numero letto e' una bolletta del Sub (o
+   una Bolletta di Riparazione); sbagliato se la fotocamera e' rimasta aperta
+   almeno 3 secondi senza leggere, o non si e' aperta; da verificare se il
+   numero non risulta tra le sue bollette o se Martina l'ha annullato.
+   L'Admin puo' sempre decidere da se'.
+   --------------------------------------------------------------------------- */
+
+const PROVA_ORE = 48;
+const PROVA_SOGLIA = 95;
+const ESITI_SPARO = {
+  iniziata: 'Iniziata', pronta: 'Pronta', gia_pronta: 'Già pronta (3° Sparo)', rientrata: 'Già rientrata: rifiutato',
+  per_sbaglio: '2° Sparo per sbaglio', non_letto: 'Chiuso senza leggere', errore_fotocamera: 'Fotocamera non aperta',
+};
+const GIUDIZI = { corretto: 'Corretto', sbagliato: 'Sbagliato', escluso: 'Non conta' };
+
+// La fine delle `ore` lavorative partendo da `inizio`: il sabato e la
+// domenica l'orologio della prova e' fermo.
+function fineOreLavorative(inizio, ore) {
+  let resto = ore * 3600e3, t = new Date(inizio);
+  for (let i = 0; i < 400; i++) {
+    const domani = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);
+    if (t.getDay() !== 0 && t.getDay() !== 6) {
+      if (resto <= domani - t) return new Date(t.getTime() + resto);
+      resto -= domani - t;
+    }
+    t = domani;
+  }
+  return t;
+}
+
+function oreLavorativeTra(a, b) {
+  let t = new Date(a), ms = 0;
+  while (t < b) {
+    const domani = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);
+    const fino = domani < b ? domani : b;
+    if (t.getDay() !== 0 && t.getDay() !== 6) ms += fino - t;
+    t = fino;
+  }
+  return ms / 3600e3;
+}
+
+const insiemeBolle = righe => new Set(righe.flatMap(r => (r.bolle || []).concat(r.riconsegnate || []).map(b => b.b)));
+
+function giudizioAutomatico(v, bolle) {
+  if (v.esito === 'non_letto') return (v.durata_ms || 0) < 3000 ? 'escluso' : 'sbagliato';   // aperta e chiusa subito: per sbaglio
+  if (v.esito === 'errore_fotocamera') return 'sbagliato';
+  if (v.annullato_il) return null;
+  if (v.in_dati === 'riparazione' || bolle.has(v.bolla)) return 'corretto';
+  return null;
+}
+
+function analisiProva(sub, spari, bolle) {
+  const dal = sub.sparo_dal ? new Date(sub.sparo_dal) : null;
+  const voci = spari.map(v => {
+    const auto = giudizioAutomatico(v, bolle);
+    return { v, auto, giudizio: v.verifica || auto, t: new Date(v.quando), dentro: false };
+  }).sort((a, b) => a.t - b.t);
+  const prima = voci.find(x => (!dal || x.t >= dal) && x.giudizio !== 'escluso');
+  const inizio = prima ? prima.t : null;
+  const fine = inizio ? fineOreLavorative(inizio, PROVA_ORE) : null;
+  for (const x of voci) x.dentro = !!inizio && x.t >= inizio && x.t < fine;
+  const dentro = voci.filter(x => x.dentro);
+  const conta = g => dentro.filter(x => x.giudizio === g).length;
+  const a = { voci, inizio, fine, dentro: dentro.length, corretti: conta('corretto'), sbagliati: conta('sbagliato'),
+    esclusi: conta('escluso'), daVerificare: dentro.filter(x => !x.giudizio).length };
+  const contati = a.corretti + a.sbagliati;
+  a.quota = contati ? Math.floor(a.corretti / contati * 1000) / 10 : null;
+  a.superata = contati > 0 && a.corretti * 100 >= PROVA_SOGLIA * contati;
+  a.trascorse = inizio ? Math.min(PROVA_ORE, oreLavorativeTra(inizio, new Date())) : 0;
+  a.stato = !inizio ? 'non_iniziata' : Date.now() < fine.getTime() ? 'in_corso'
+    : a.daVerificare ? 'da_verificare' : a.superata ? 'superata' : 'non_superata';
+  return a;
+}
+
+const fmtGiornoOra = d => d.toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const fmtSparo = ts => new Date(ts).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const fmtQuota = a => a.quota === null ? '—' : String(a.quota).replace('.', ',') + '%';
+
+async function datiProva(s, leggi) {
+  const [spari, righe] = await Promise.all([
+    leggi(sb.from('sparo_prova').select('*').eq('sub_id', s.id).order('quando')),
+    leggi(sb.from('riga').select('commessa,bolle,riconsegnate').eq('sub_id', s.id)),
+  ]);
+  return analisiProva(s, spari, insiemeBolle(righe));
+}
+
+// Per la Bacheca: una riga per ogni Sub in prova.
+async function riquadriProvaSparo() {
+  const out = [];
+  for (const s of S.subs.filter(x => x.sparo === 'prova')) {
+    const a = await datiProva(s, facoltativo);
+    const quanti = a.dentro + (a.dentro === 1 ? ' tentativo' : ' tentativi');
+    const testo = {
+      non_iniziata: 'non ancora iniziata (le 48 ore partono dal primo Sparo).',
+      in_corso: quanti + ', ' + fmtQuota(a) + ' corretti · finisce ' + fmtGiornoOra(a.fine) + (a.daVerificare ? ' · ' + a.daVerificare + ' da verificare' : '') + '.',
+      da_verificare: 'finita: ' + a.daVerificare + ' Spari da verificare.',
+      superata: 'superata con il ' + fmtQuota(a) + ' di Spari corretti.',
+      non_superata: 'non superata (' + fmtQuota(a) + ' di Spari corretti, serve il ' + PROVA_SOGLIA + '%).',
+    }[a.stato];
+    out.push(h('div', { class: 'avviso prova-sparo-riga' }, ico('barcode'),
+      h('span', null, h('b', null, 'Prova dello Sparo · ' + s.nome + ': '), testo),
+      h('button', { class: 'tasto piccolo chiaro', onclick: () => vai('sparo') }, 'Apri')));
+  }
+  return out;
+}
+
+async function vistaSparo() {
+  const subs = S.subs.filter(s => s.sparo);
+  const blocchi = [];
+  for (const s of subs) blocchi.push(bloccoProva(s, await datiProva(s, q)));
+  riempi(corpo(),
+    h('div', { class: 'intestazione' }, h('h2', null, 'Prova dello Sparo'),
+      h('p', null, 'Il tasto «Spara bolletta» registra ogni tentativo ma non cambia niente in Note Av. La prova è superata se almeno il '
+        + PROVA_SOGLIA + '% degli Spari è corretto nelle ' + PROVA_ORE + ' ore lavorative (lunedì–venerdì) dal primo Sparo.')),
+    subs.length ? blocchi : vuoto('Nessuna prova', 'Nessun Sub ha il tasto «Spara bolletta».'));
+  disegnaBarra();
+}
+
+function bloccoProva(s, a) {
+  const contati = a.corretti + a.sbagliati;
+  const su = a.corretti + ' su ' + contati;
+  const titolo = { non_iniziata: 'Non ancora iniziata', in_corso: 'In corso', da_verificare: 'Finita: restano Spari da verificare',
+    superata: 'Prova superata', non_superata: 'Prova non superata' }[a.stato];
+  const frase = {
+    non_iniziata: 'Le ' + PROVA_ORE + ' ore partono dal primo Sparo di ' + s.nome + '.',
+    in_corso: fmtQuota(a) + ' di Spari corretti finora (' + su + '). Finisce ' + fmtGiornoOra(a.fine) + '.',
+    da_verificare: 'Decidi qui sotto gli Spari «da verificare»: poi la pagina dice com’è andata.',
+    superata: fmtQuota(a) + ' di Spari corretti (' + su + '). Ora si fa il resto: stati e colori delle bollette, Avvisi di Avanzamento, notifiche e READLY; poi l’ADR «Sparo con la fotocamera dello smartphone invece della pistola».',
+    non_superata: fmtQuota(a) + ' di Spari corretti (' + su + '), ne serve almeno il ' + PROVA_SOGLIA + '%. Prima di tornare alla pistola si riprova con un Android economico lasciato in laboratorio: «Ricomincia la prova da adesso».',
+  }[a.stato];
+  const barra = h('div', null);
+  if (a.inizio) setTimeout(() => { barra.style.width = Math.round(a.trascorse / PROVA_ORE * 100) + '%'; }, 60);
+
+  const righe = a.voci.slice().reverse().map(x => rigaSparo(x));
+  const excel = () => scaricaExcel(('Note Av - Prova dello Sparo - ' + s.nome + ' - ' + oggiIso() + '.xlsx').replace(/[\\/:*?"<>|]/g, ' '), [{
+    nome: 'Spari',
+    colonne: ['Quando', 'Nella prova', 'Bolletta', 'Codice letto', 'Commessa', 'Pezzi', 'Nei dati', 'Esito', 'Annullato', 'Lettura (s)',
+      'Lettore', 'Fotogrammi', 'Fotocamera', 'Telefono', 'Errore', 'Giudizio', 'Deciso da'],
+    righe: a.voci.map(({ v, giudizio, dentro }) => [fmtSparo(v.quando), dentro ? 'Sì' : 'No', v.bolla, v.codice, v.commessa, v.pezzi, v.in_dati,
+      ESITI_SPARO[v.esito] || v.esito, v.annullato_il ? (v.annullato_da === 'admin' ? 'dall’Admin' : 'da ' + s.nome) : '',
+      v.durata_ms != null ? Math.round(v.durata_ms / 100) / 10 : null, v.fonte, v.fotogrammi, v.video, v.telefono, v.nota,
+      giudizio ? GIUDIZI[giudizio] : 'Da verificare', v.verifica ? 'Admin' : 'automatico']) }]);
+
+  return h('section', { class: 'prova-sparo' },
+    S.subs.filter(x => x.sparo).length > 1 ? h('h3', { class: 'gruppo-sub' }, s.nome) : null,
+    h('div', { class: 'prova-esito ' + a.stato },
+      h('h3', null, titolo), h('p', null, frase),
+      a.inizio ? [h('div', { class: 'progresso' + (a.stato === 'superata' ? ' fatto' : '') }, barra),
+        h('p', { class: 'tenue' }, 'Iniziata ' + fmtGiornoOra(a.inizio) + ' · trascorse ' + String(Math.floor(a.trascorse * 10) / 10).replace('.', ',')
+          + ' ore lavorative su ' + PROVA_ORE + ' · finisce ' + fmtGiornoOra(a.fine))] : null,
+      h('div', { class: 'numeri' },
+        numero('Nella prova', String(a.dentro), true), numero('Corretti', String(a.corretti)), numero('Sbagliati', String(a.sbagliati)),
+        numero('Da verificare', String(a.daVerificare)), numero('Non contano', String(a.esclusi))),
+      h('div', { class: 'azioni-prova' },
+        a.voci.length ? tastoExcel(excel) : null,
+        s.sparo === 'prova' ? h('button', { class: 'tasto piccolo chiaro', type: 'button', onclick: async () => {
+          if (!confirm('Ricominciare la prova di ' + s.nome + ' da adesso? Gli Spari fatti finora restano nell’elenco ma non contano più.')) return;
+          try {
+            await q(sb.rpc('riparti_prova_sparo', { p_sub: s.id }));
+            S.subs = await q(sb.from('sub').select('*').order('ordine').order('nome'));
+            toast('La prova ricomincia dal prossimo Sparo.');
+            vistaSparo().catch(e => gestisciErrore(e, 'sparo'));
+          } catch (e) { gestisciErrore(e, 'sparo'); }
+        } }, 'Ricomincia la prova da adesso') : null)),
+    righe.length ? h('div', { class: 'tabella-box' }, h('table', { class: 't' },
+      h('thead', null, h('tr', null, ['Quando', 'Bolletta', 'Esito', 'Lettura', 'Telefono', 'Giudizio'].map(t => h('th', null, t)))),
+      h('tbody', null, righe)))
+      : vuoto('Ancora nessuno Sparo', 'Qui compare ogni tentativo di ' + s.nome + ', anche quando la fotocamera si chiude senza leggere.'));
+}
+
+function rigaSparo({ v, auto, giudizio, dentro }) {
+  const annullato = v.annullato_il ? 'annullato ' + (v.annullato_da === 'admin' ? 'dall’Admin' : 'da Martina') : null;
+  const nonNeiDati = { attesa: 'non tra le sue bollette (Sparo in Attesa)', riparazione: 'Bolletta di Riparazione' }[v.in_dati];
+  const azioni = Object.keys(GIUDIZI).filter(g => giudizio !== g).map(g =>
+    h('button', { type: 'button', onclick: () => azioneSparo(v.id, g) }, GIUDIZI[g]));
+  if (v.verifica) azioni.push(h('button', { type: 'button', onclick: () => azioneSparo(v.id, 'automatico') }, 'Automatico'));
+  if (v.esito === 'iniziata' || v.esito === 'pronta') azioni.push(v.annullato_il
+    ? h('button', { type: 'button', onclick: () => azioneSparo(v.id, 'ripristina') }, 'Ripristina lo Sparo')
+    : h('button', { type: 'button', onclick: () => azioneSparo(v.id, 'annulla') }, 'Annulla lo Sparo'));
+  // ogni cella in un solo blocco: sul telefono la tabella diventa una scheda
+  const cella = (l, ...dentroCella) => h('td', { 'data-l': l }, h('div', null, dentroCella));
+  return h('tr', { class: dentro ? null : 'fuori' },
+    h('td', { class: 'testa', 'data-l': 'Quando' }, h('div', null, fmtSparo(v.quando),
+      dentro ? null : h('div', { class: 'tenue' }, 'fuori dalla prova'))),
+    cella('Bolletta', v.bolla ? [h('b', null, v.bolla), h('span', { class: 'tenue' }, ' (' + v.codice + ')'),
+      h('div', { class: 'tenue' }, v.commessa ? v.commessa + ' · ' + pz(v.pezzi) + ' pz' : nonNeiDati || '')] : '—'),
+    cella('Esito', ESITI_SPARO[v.esito] || v.esito, annullato ? h('div', null, h('span', { class: 'etichetta' }, annullato)) : null),
+    cella('Lettura', v.durata_ms != null ? String(Math.round(v.durata_ms / 100) / 10).replace('.', ',') + ' s' : '',
+      v.fonte ? h('div', { class: 'tenue' }, (v.fonte === 'interno' ? 'lettore di Note Av' : v.fonte === 'nativo' ? 'lettore del telefono' : 'entrambi i lettori')
+        + (v.fotogrammi ? ' · ' + v.fotogrammi + ' fotogrammi' : '')) : null,
+      v.nota ? h('div', { class: 'tenue' }, v.nota) : null),
+    cella('Telefono', v.telefono || '', v.video ? h('div', { class: 'tenue' }, 'fotocamera ' + v.video) : null),
+    h('td', { class: 'blocco', 'data-l': 'Giudizio' },
+      h('span', { class: 'giudizio ' + (giudizio || 'da-verificare') }, giudizio ? GIUDIZI[giudizio] : 'Da verificare'),
+      h('span', { class: 'tenue' }, v.verifica ? ' · deciso da te' : auto ? ' · automatico' : ''),
+      h('div', { class: 'azioni-sparo' }, azioni)));
+}
+
+async function azioneSparo(id, azione) {
+  try { await q(sb.rpc('gestisci_sparo_prova', { p_id: id, p_azione: azione })); }
+  catch (e) { return gestisciErrore(e, 'sparo'); }
+  vistaSparo().catch(e => gestisciErrore(e, 'sparo'));
 }
 
 /* ---------------------------------------------------------------------------
@@ -1788,6 +2250,7 @@ function apriMenu() {
     h('div', { class: 'menu-aiuto' },
       sub ? h('button', { class: 'tasto pieno', onclick: () => { f.chiudi(); apriGuida(0); } }, ico('aiuto'), 'Come funziona Note Av') : null,
       sub ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); apriAvviso(false); } }, ico('attenzione'), 'Avviso sulle assegnazioni') : null,
+      !sub && S.subs.some(s => s.sparo) ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); vai('sparo'); } }, ico('barcode'), 'Prova dello Sparo') : null,
       standalone() ? null : h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); installa(); } }, ico(TELEFONO ? 'telefono' : 'schermo'), TELEFONO ? 'Metti Note Av sul telefono' : 'Installa Note Av sul computer'),
       avvisi,
       h('p', { class: 'nota-piccola' }, testoAggiornato() + '. I pezzi si aggiornano circa ogni 2 ore; le note arrivano subito.'),
@@ -1946,6 +2409,7 @@ function avviaControlloPeriodico() {
 async function controlloPeriodico() {
   if (!S.chi || document.hidden) return;
   if ((await controllaSessione()) !== 'ok') return;     // 'rete': si riprova al giro dopo, senza uscire
+  if (SP.coda.length) inviaSpari();                     // Spari rimasti nel telefono
   try {
     const st = await q(sb.from('stato_dati').select('*'));
     const cambiati = st[0] && (!S.stato || st[0].aggiornato !== S.stato.aggiornato);
@@ -1958,6 +2422,7 @@ async function controlloPeriodico() {
     // numeri nuovi dal PC (Carico, Aperte, Chiuse): anche Sub e commesse nuove
     if (cambiati) { try { S.subs = await q(sb.from('sub').select('*').order('ordine').order('nome')); } catch (e) { /* al giro dopo */ } }
     if (S.vista === 'bacheca') return vistaBacheca();
+    if (S.vista === 'sparo') return vistaSparo();
     await contaDaLeggere();
     aggiornaConta();
     if (S.vista === 'righe' && !S.archivio && (S.daLeggere || cambiati)) return vistaRighe();

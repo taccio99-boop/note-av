@@ -24,6 +24,9 @@
   --verde-ink: #ffffff;
   --danger: #c0392b;
   --danger-2: #fde4e0;
+  --blu: #2b6cb0;               /* bolletta Pronta (lo Sparo di Zeta Due) */
+  --blu-2: #e3eefa;
+  --blu-ink: #ffffff;
   --nuovo: #fff3c4;
   --ombra: 0 1px 2px rgba(120, 80, 20, .06), 0 6px 20px rgba(120, 80, 20, .08);
   --raggio: 18px;
@@ -36,6 +39,7 @@
     --bg: #1d1813; --surface: #28211a; --surface-2: #332a20; --ink: #f6ece0; --ink-2: #c9b8a4; --ink-3: #8f7f6c;
     --line: #42362a; --accent: #ffa65c; --accent-2: #3d2a1a; --accent-ink: #2a1606; --sole: #ffc94d; --sole-2: #3a3119;
     --sole-bordo: #6b5a2a; --verde: #6fd09a; --verde-2: #1d3326; --verde-ink: #0d2618; --danger: #ff8a7a; --danger-2: #3e211c;
+    --blu: #7cb4f0; --blu-2: #1c2a3a; --blu-ink: #0b1a2b;
     --nuovo: #3a3119; --ombra: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -44,6 +48,7 @@
   --bg: #1d1813; --surface: #28211a; --surface-2: #332a20; --ink: #f6ece0; --ink-2: #c9b8a4; --ink-3: #8f7f6c;
   --line: #42362a; --accent: #ffa65c; --accent-2: #3d2a1a; --accent-ink: #2a1606; --sole: #ffc94d; --sole-2: #3a3119;
   --sole-bordo: #6b5a2a; --verde: #6fd09a; --verde-2: #1d3326; --verde-ink: #0d2618; --danger: #ff8a7a; --danger-2: #3e211c;
+  --blu: #7cb4f0; --blu-2: #1c2a3a; --blu-ink: #0b1a2b;
   --nuovo: #3a3119; --ombra: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -477,3 +482,69 @@ input.data:focus { border-color: var(--accent); outline: none; }
 @keyframes festa { 0% { transform: scale(.3); opacity: 0; } 18% { transform: scale(1.06); opacity: 1; } 30% { transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: scale(.96); } }
 
 .piede { text-align: center; color: var(--ink-3); font-size: 14px; margin: 26px 0 0; }
+
+/* ---------- Sparo delle Bollette (Zeta Due) ---------- */
+body.con-sparo main { padding-bottom: calc(210px + env(safe-area-inset-bottom)); }
+body.con-sparo #toast { bottom: calc(200px + env(safe-area-inset-bottom)); }
+.tasto.spara .prova { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; background: rgba(255, 255, 255, .25); border-radius: 7px; padding: 2px 7px; }
+.sparo-senza-rete { border-top: 1px dashed var(--line); margin-top: 18px; display: grid; gap: 10px; }
+.sparo-senza-rete .nota-piccola { margin: 12px 0 0; }
+.sparo-senza-rete .tasto { min-height: 58px; font-size: 19px; }
+.esito-sparo { text-align: center; display: grid; justify-items: center; gap: 6px; padding: 8px 0 18px; }
+.esito-sparo .segno { width: 78px; height: 78px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); }
+.esito-sparo .segno svg { width: 42px; height: 42px; }
+.esito-sparo h3 { font-size: 27px; margin: 6px 0 0; }
+.esito-sparo p { margin: 0; color: var(--ink-2); font-size: 17px; }
+.esito-sparo.iniziata .segno { background: var(--sole); color: #3b2a00; }
+.esito-sparo.pronta .segno { background: var(--blu); color: var(--blu-ink); }
+.esito-sparo.rifiutato .segno { background: var(--danger-2); color: var(--danger); }
+.domanda-sparo { text-align: center; font-size: 23px !important; margin: 10px 0 18px !important; }
+.tasti-sparo { display: flex; gap: 10px; }
+.tasti-sparo .tasto { flex: 1; min-height: 60px; font-size: 19px; border-radius: 16px; }
+.tasti-sparo.colonna { flex-direction: column; }
+.prova-sparo { text-align: center; }
+.prova-sparo-riga > svg { width: 22px; height: 22px; flex: none; color: var(--accent); }
+/* pagina «Prova dello Sparo» (Admin) */
+section.prova-sparo { text-align: left; margin-bottom: 24px; }
+.prova-esito { background: var(--surface); border: 2px solid var(--line); border-radius: var(--raggio); box-shadow: var(--ombra); padding: 16px; margin: 0 0 14px; display: grid; gap: 10px; }
+.prova-esito h3 { margin: 0; font: 700 22px/1.2 var(--titoli); }
+.prova-esito p { margin: 0; }
+.prova-esito.superata { border-color: var(--verde); }
+.prova-esito.superata h3 { color: var(--verde); }
+.prova-esito.non_superata { border-color: var(--danger); }
+.prova-esito.non_superata h3 { color: var(--danger); }
+.prova-esito.da_verificare h3 { color: var(--accent); }
+.azioni-prova { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+table.t tr.fuori td { opacity: .55; }
+.giudizio { font-weight: 700; }
+.giudizio.corretto { color: var(--verde); }
+.giudizio.sbagliato { color: var(--danger); }
+.giudizio.escluso { color: var(--ink-3); }
+.giudizio.da-verificare { color: var(--accent); }
+.azioni-sparo { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.azioni-sparo button { font-size: 13px; padding: 4px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); }
+.azioni-sparo button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- lettore del barcode GEA (lettore_gea.js): la fotocamera a tutto schermo ---------- */
+.lettore { position: fixed; inset: 0; z-index: 70; background: #000; color: #fff; overflow: hidden; animation: velo .2s ease; }
+.lettore.via { opacity: 0; transition: opacity .18s ease; }
+.lettore-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lettore-testa { position: absolute; top: 0; left: 0; right: 0; padding: calc(16px + env(safe-area-inset-top)) 16px 34px; text-align: center; font: 700 21px/1.2 var(--titoli); background: linear-gradient(rgba(0, 0, 0, .65), transparent); }
+.lettore-mirino {
+  --l: min(86vw, 560px);
+  position: absolute; left: 50%; top: 42%; width: var(--l); height: calc(var(--l) / 3); transform: translate(-50%, -50%);
+  border-radius: 16px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .5); outline: 3px solid rgba(255, 255, 255, .9); outline-offset: 0;
+  transition: outline-color .15s ease;
+}
+.lettore-mirino.preso { outline-color: #4ade80; outline-width: 5px; }
+.lettore-linea { position: absolute; left: 5%; right: 5%; height: 2px; top: 50%; background: #ff7a45; box-shadow: 0 0 10px #ff7a45; border-radius: 2px; animation: scansione 1.4s ease-in-out infinite alternate; }
+.lettore-mirino.preso .lettore-linea { display: none; }
+@keyframes scansione { from { top: 18%; } to { top: 82%; } }
+.lettore-aiuto { position: absolute; left: 20px; right: 20px; top: calc(42% + min(86vw, 560px) / 6 + 20px); margin: 0; text-align: center; font-size: 18px; line-height: 1.4; text-shadow: 0 1px 4px rgba(0, 0, 0, .9); }
+.lettore.errore .lettore-aiuto { top: 34%; background: rgba(20, 14, 8, .92); border-radius: 18px; padding: 18px; text-shadow: none; }
+.lettore.errore .lettore-mirino, .lettore.errore .lettore-luce { display: none; }
+.lettore-tasti { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 16px calc(20px + env(safe-area-inset-bottom)); display: flex; gap: 12px; justify-content: center; background: linear-gradient(transparent, rgba(0, 0, 0, .7)); }
+.lettore-tasti button { min-height: 58px; min-width: 140px; padding: 0 22px; border-radius: 16px; border: 0; font-size: 19px; font-weight: 600; background: rgba(255, 255, 255, .94); color: #222; }
+.lettore-tasti .lettore-luce[aria-pressed="true"] { background: #ffd34d; }
+.lettore-testa, .lettore-aiuto, .lettore-tasti { z-index: 1; }     /* sopra l'ombra del riquadro */
+@media (prefers-reduced-motion: reduce) { .lettore-linea { animation: none; } }

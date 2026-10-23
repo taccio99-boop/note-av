@@ -8,6 +8,10 @@
    ============================================================================= */
 'use strict';
 
+// INTERRUTTORE Distinte Base (23/10/2026): false = nessun tasto "Distinta" per nessuno, Admin e Sub.
+// In attesa della verifica del tecnico informatico. Per riattivarle: true (e MOSTRA_DIBA in script\note_av_dati.py).
+const MOSTRA_DIBA = false;
+
 const CFG = window.NOTE_AV || {};
 const sb = (CFG.supabaseUrl && CFG.supabaseKey && window.supabase)
   ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, {
@@ -921,7 +925,7 @@ function schedaRiga(r, s) {
         : [inputData(r, s.dataEff, mostra), h('span', { class: 'tenue' }, 'se lo sai')]),
     sola ? null : stato,
     h('div', { class: 'piedino' },
-      r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base') : null,
+      MOSTRA_DIBA && r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base') : null,
       h('button', { class: 'link', onclick: () => apriStorico(r) }, 'Messaggi precedenti')));
 }
 
@@ -1037,7 +1041,7 @@ function rigaRighe(r, s, conSub) {
 
   const cellaComm = h('td', { class: 'testa', 'data-l': 'Commessa' },
     h('div', null, h('span', { class: 'cod' }, r.commessa), ' ',
-      r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null),
+      MOSTRA_DIBA && r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null),
     etichette.length ? h('div', { style: 'margin-top:4px;display:flex;gap:6px;flex-wrap:wrap' }, etichette) : null,
     bolletteInCasa(r, true), bolletteRiconsegnate(r, true),
     h('button', { class: 'link', style: 'font-size:13px', onclick: () => apriStorico(r) }, 'Storico'));
@@ -1174,6 +1178,7 @@ function festa() {
 }
 
 async function apriDiba(r) {
+  if (!MOSTRA_DIBA) return;
   const { data, error } = await sb.storage.from('diba').createSignedUrl(r.sub_id + '/' + r.commessa + '.pdf', 120);
   if (error || !data) return toast('Distinta non disponibile.');
   window.open(data.signedUrl, '_blank', 'noopener');
@@ -1264,7 +1269,7 @@ async function vistaCarico() {
   const voci = elenco.map(r => ({ r, testi: testiCarico(r), el: h('tr', null,
       h('td', { class: 'testa', 'data-l': 'Commessa' },
         h('span', { class: 'cod' }, r.commessa), ' ',
-        r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null,
+        MOSTRA_DIBA && r.diba ? h('button', { class: 'diba', onclick: () => apriDiba(r) }, 'Distinta') : null,
         bolletteInCasa(r, true), bolletteRiconsegnate(r, true),
         dettaglioCarico(r)),
       conSub ? h('td', { 'data-l': 'Sub' }, nomeSub(r.sub_id)) : null,
@@ -1311,7 +1316,7 @@ function disegnaCaricoSub(elenco, tot) {
     bolletteInCasa(r),
     bolletteRiconsegnate(r),
     dettaglioCarico(r),
-    r.diba ? h('div', { class: 'piedino' }, h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base')) : null) }));
+    MOSTRA_DIBA && r.diba ? h('div', { class: 'piedino' }, h('button', { class: 'diba', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base')) : null) }));
   const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
   const ricerca = ricercaSu(voci, schede);
   riempi(corpo(),

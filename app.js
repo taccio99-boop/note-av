@@ -8,9 +8,9 @@
    ============================================================================= */
 'use strict';
 
-// INTERRUTTORE Distinte Base (23/10/2026): false = nessun tasto "Distinta" per nessuno, Admin e Sub.
-// In attesa della verifica del tecnico informatico. Per riattivarle: true (e MOSTRA_DIBA in script\note_av_dati.py).
-const MOSTRA_DIBA = false;
+// INTERRUTTORE Distinte Base: true = tasto "Distinta" per Admin e Sub; false = spente per tutti.
+// Spente il 23/10/2026 per la verifica del tecnico informatico, riaccese il 26/10/2026. Per spegnerle: false qui e in script\note_av_dati.py.
+const MOSTRA_DIBA = true;
 
 const CFG = window.NOTE_AV || {};
 const sb = (CFG.supabaseUrl && CFG.supabaseKey && window.supabase)

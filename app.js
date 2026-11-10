@@ -1,6 +1,7 @@
 /* =============================================================================
    NOTE AV - la pagina
-   Un'unica pagina per l'Admin e per i Sub: cosa si vede lo decide il ruolo di
+   Un'unica pagina per l'Admin, per i Sub e per l'Ispettore (il quaderno con
+   note e foto sulle commesse di alcuni Sub): cosa si vede lo decide il ruolo di
    chi entra, cosa si puo' leggere lo decide il database (Row Level Security).
    Nessun dato vive qui dentro: arriva tutto da Supabase dopo l'accesso.
    Il lato Sub e' pensato per chi usa poco la tecnologia: schede grandi, parole
@@ -21,7 +22,7 @@ const sb = (CFG.supabaseUrl && CFG.supabaseKey && window.supabase)
 const app = document.getElementById('app');
 const S = {
   chi: null,            // { ruolo, sub_id, nome_utente }
-  io: null,             // 'admin' | 'sub'
+  io: null,             // 'admin' | 'sub' | 'ispettore'
   subs: [],
   stato: null,
   vista: null,
@@ -42,8 +43,9 @@ const S = {
 const NOMI_VISTA = {
   admin: { bacheca: 'Bacheca', righe: 'Righe', carico: 'Carico', consegne: 'Consegne', rientri: 'Rientri', accessi: 'Accessi' },
   sub: { righe: 'Note', carico: 'Lavoro', consegne: 'Consegne' },
+  ispettore: { quaderno: 'Quaderno' },
 };
-const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave' };
+const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno' };
 const COLONNE = [
   ['da_controllare', 'Da controllare'],
   ['in_attesa', 'In attesa di risposta'],
@@ -115,6 +117,10 @@ const ICONE = {
   excel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
   robot: '<ellipse cx="12" cy="7.5" rx="6" ry="4.5"/><path d="M9.5 7.5h.01M14.5 7.5h.01"/><path d="M7.5 14c0-1.5 9-1.5 9 0 0 4-2 6.5-4.5 6.5S7.5 18 7.5 14z"/>',
   grafico: '<path d="M3 20h18"/><rect x="5" y="11" width="3" height="7" rx="1"/><rect x="10.5" y="6" width="3" height="12" rx="1"/><rect x="16" y="9" width="3" height="9" rx="1"/>',
+  fotocamera: '<path d="M4 8h3l1.5-2.5h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
+  galleria: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
+  cestino: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+  quaderno: '<path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6z"/><path d="M6 3v18M3.5 7.5h3M3.5 12h3M3.5 16.5h3M10 8h6M10 12h6"/>',
   barcode: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13.5 8v8M17 8v8"/>',
 };
 
@@ -422,8 +428,8 @@ async function dopoAccesso(chi) {
   // Animazione d'ingresso: l'Admin la vede a ogni apertura, i Sub una volta al giorno.
   if (S.io === 'admin' ? !S.splashFatto : ricordato('splash') !== oggiIso()) { ricorda('splash', oggiIso()); await splash(); }
   S.lunedi = lunediDi(new Date());
-  S.vista = S.io === 'admin' ? 'bacheca' : 'righe';
-  S.subSel = S.io === 'admin' ? '*' : S.chi.sub_id;
+  S.vista = S.io === 'admin' ? 'bacheca' : S.io === 'ispettore' ? 'quaderno' : 'righe';
+  S.subSel = S.io === 'sub' ? S.chi.sub_id : '*';
   try { await caricaBase(); } catch (e) { return gestisciErrore(e, 'base'); }
   disegna();
   avviaControlloPeriodico();
@@ -631,16 +637,17 @@ function testoAggiornato() {
 
 function disegna() {
   const sub = S.io === 'sub';
-  const viste = sub ? ['righe', 'carico', 'consegne'] : ['bacheca', 'righe', 'carico', 'consegne', 'rientri', 'accessi'];
-  const titolo = sub ? nomeSub(S.chi.sub_id) : 'Note Av';
+  const viste = sub ? ['righe', 'carico', 'consegne'] : S.io === 'ispettore' ? ['quaderno']
+    : ['bacheca', 'righe', 'carico', 'consegne', 'rientri', 'accessi'];
+  const titolo = sub ? nomeSub(S.chi.sub_id) : S.io === 'ispettore' ? 'Note Av · Ispettore' : 'Note Av';
   const testata = h('header', { class: 'testata' },
     h('div', { class: 'riga1' }, logo(),
       h('div', { class: 'titolo' }, h('b', null, titolo), h('small', { id: 'aggiornato' }, testoAggiornato())),
-      !sub && !TELEFONO ? h('button', { class: 'aiuto vai-avanzamento', title: 'Apri l’Avanzamento produzione',
+      S.io === 'admin' && !TELEFONO ? h('button', { class: 'aiuto vai-avanzamento', title: 'Apri l’Avanzamento produzione',
         onclick: () => window.open(CFG.avanzamentoUrl || 'http://PRODUZIONE-DESK:8090/', 'avanzamento-produzione') },
         ico('grafico'), h('span', null, 'Avanzamento')) : null,
       h('button', { class: 'aiuto', onclick: apriMenu, 'aria-label': sub ? 'Aiuto' : 'Menu' }, ico(sub ? 'aiuto' : 'menu'), sub ? 'Aiuto' : 'Menu')),
-    h('nav', { class: 'schede' + (sub ? ' larghe' : ''), role: 'tablist' },
+    viste.length < 2 ? null : h('nav', { class: 'schede' + (sub ? ' larghe' : ''), role: 'tablist' },
       viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), 'data-vista': v,
           onclick: () => v === 'rientri' ? apriRientri() : vai(v) },
         v === 'rientri' ? readly() : ico(ICONE_VISTA[v]), h('span', null, NOMI_VISTA[S.io][v]),
@@ -650,7 +657,7 @@ function disegna() {
   document.body.classList.toggle('con-sparo', !!modoSparo());     // piu' spazio in fondo per il tasto
   aggiornaConta();
   aggiornaInviti();
-  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo })[S.vista]()
+  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo, quaderno: vistaQuaderno })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
 }
 
@@ -683,7 +690,7 @@ function vai(vista, subSel) {
 function corpo() { return document.getElementById('corpo'); }
 
 function filtroSub(onCambio, conTutti = true) {
-  if (S.io !== 'admin') return null;
+  if (S.io === 'sub') return null;
   const nonLetti = new Set(S.invii.filter(i => i.da === 'sub').map(i => i.sub_id));
   const voci = (conTutti ? [['*', 'Tutti']] : []).concat(S.subs.map(s => [s.id, s.nome]));
   return h('div', { class: 'filtri' }, voci.map(([id, nome]) =>
@@ -2069,7 +2076,7 @@ async function riquadriProvaSparo() {
     const quanti = a.dentro + (a.dentro === 1 ? ' tentativo' : ' tentativi');
     const testo = {
       non_iniziata: 'non ancora iniziata (le 48 ore partono dal primo Sparo).',
-      in_corso: quanti + ', ' + fmtQuota(a) + ' corretti · finisce ' + fmtGiornoOra(a.fine) + (a.daVerificare ? ' · ' + a.daVerificare + ' da verificare' : '') + '.',
+      in_corso: quanti + ', ' + fmtQuota(a) + ' corretti · finisce ' + (a.fine ? fmtGiornoOra(a.fine) : '') + (a.daVerificare ? ' · ' + a.daVerificare + ' da verificare' : '') + '.',
       da_verificare: 'finita: ' + a.daVerificare + ' Spari da verificare.',
       superata: 'superata con il ' + fmtQuota(a) + ' di Spari corretti.',
       non_superata: 'non superata (' + fmtQuota(a) + ' di Spari corretti, serve il ' + PROVA_SOGLIA + '%).',
@@ -2238,6 +2245,342 @@ function apriGuida(da) {
 }
 
 /* ---------------------------------------------------------------------------
+   Quaderno dell'Ispettore (database\ispettore.sql)
+   L'Ispettore vede le Commesse aperte dei Sub con sub.ispezione, una scheda per
+   Commessa come nelle Note del Sub. Su ognuna scrive le sue note (si salvano
+   da sole, non partono per nessuno) e archivia le foto: il tasto con la
+   macchina fotografica apre la fotocamera del telefono. Le foto stanno nel
+   bucket privato «ispezione»; quando la Commessa e' riconsegnata le cancella
+   il PC dell'ufficio (script\note_av_dati.py), le note restano nell'archivio.
+   --------------------------------------------------------------------------- */
+
+const ISP = {
+  note: new Map(),      // sub|commessa -> { testo, aggiornato_il }
+  foto: new Map(),      // sub|commessa -> [{ id, percorso, creata_il }]
+  file: new Map(),      // percorso -> { blob, url }: le foto gia' scaricate in questa apertura
+  soloSegnate: false,   // filtro «Solo con note o foto»
+};
+
+async function vistaQuaderno() {
+  const ids = subVisibili();
+  let righe = [], note = [], foto = [];
+  if (ids.length) {
+    [note, foto] = await Promise.all([
+      q(sb.from('ispezione_nota').select('*').in('sub_id', ids)),
+      q(sb.from('ispezione_foto').select('*').in('sub_id', ids).order('creata_il')),
+    ]);
+    if (!S.archivio) righe = await q(sb.from('riga').select('*').in('sub_id', ids).gt('aperte', 0));
+    else {
+      // archivio: le Commesse riconsegnate su cui c'e' una nota
+      const conNota = [...new Set(note.map(n => n.commessa))];
+      righe = conNota.length ? await q(sb.from('riga').select('*').in('sub_id', ids).eq('aperte', 0).in('commessa', conNota)) : [];
+    }
+  }
+  S.righe = righe;
+  ISP.note = new Map(note.map(n => [chiave(n.sub_id, n.commessa), n]));
+  ISP.foto = new Map();
+  for (const f of foto) {
+    const k = chiave(f.sub_id, f.commessa);
+    if (!ISP.foto.has(k)) ISP.foto.set(k, []);
+    ISP.foto.get(k).push(f);
+  }
+  disegnaQuaderno();
+}
+
+function disegnaQuaderno() {
+  const k = r => chiave(r.sub_id, r.commessa);
+  const testoNota = r => (ISP.note.get(k(r)) || {}).testo || '';
+  const nFoto = r => (ISP.foto.get(k(r)) || []).length;
+  const ricarica = () => vistaQuaderno().catch(e => gestisciErrore(e, 'quaderno'));
+
+  const tutte = S.righe.filter(r => S.archivio ? !!testoNota(r) : r.aperte > 0);
+  const elenco = (ISP.soloSegnate && !S.archivio ? tutte.filter(r => testoNota(r) || nFoto(r)) : tutte)
+    .sort((a, b) => String(a.scadenza || '9999').localeCompare(String(b.scadenza || '9999')) || a.commessa.localeCompare(b.commessa));
+  const conNote = tutte.filter(testoNota).length;
+  const foto = tutte.reduce((t, r) => t + nFoto(r), 0);
+  const frase = S.archivio
+    ? 'Le commesse già riconsegnate su cui avevi scritto una nota. Le foto non ci sono più: si cancellano alla riconsegna.'
+    : tutte.length + (tutte.length === 1 ? ' commessa aperta' : ' commesse aperte') + ' · ' + pz(tutte.reduce((t, r) => t + r.aperte, 0)) + ' pz dai Sub'
+      + (conNote ? ' · ' + conNote + ' con note' : '') + (foto ? ' · ' + foto + ' foto' : '');
+
+  // testi: letti a ogni ricerca, cosi' si trova anche la nota appena scritta
+  const voci = elenco.map(r => ({ el: schedaQuaderno(r),
+    get testi() { return [r.commessa, r.modello, r.parte, r.descrizione, r.stagione, nomeSub(r.sub_id), testoNota(r), numeriBolle(r)]; } }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+
+  const filtri = filtroSub(ricarica);
+  if (filtri && !S.archivio) filtri.append(h('button', { class: 'chip', type: 'button', 'aria-pressed': String(ISP.soloSegnate),
+    onclick: () => { ISP.soloSegnate = !ISP.soloSegnate; disegnaQuaderno(); } }, ico('matita'), 'Solo con note o foto'));
+
+  riempi(corpo(),
+    h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
+      h('h2', null, S.archivio ? 'Commesse riconsegnate' : saluto() + '! Ecco il tuo quaderno'),
+      h('p', null, frase))),
+    filtri,
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
+      : vuoto(S.archivio ? 'Archivio vuoto' : ISP.soloSegnate ? 'Ancora niente di segnato' : 'Nessuna commessa aperta',
+          S.archivio ? 'Qui finiscono le commesse riconsegnate su cui avevi scritto una nota.'
+            : ISP.soloSegnate ? 'Non hai ancora scritto note né fatto foto su queste commesse.'
+            : 'In questo momento questi Sub non hanno commesse in casa.'),
+    h('p', { class: 'piede' }, h('button', { class: 'link', onclick: () => { S.archivio = !S.archivio; window.scrollTo(0, 0); ricarica(); } },
+      S.archivio ? '← Torna alle commesse aperte' : 'Vedi le note delle commesse riconsegnate')));
+  ricerca.aggiorna();
+  disegnaBarra();
+}
+
+function schedaQuaderno(r) {
+  const k = chiave(r.sub_id, r.commessa);
+  const sola = S.archivio;
+  const nota = ISP.note.get(k);
+
+  const stato = h('div', { class: 'stato-invio' });
+  const mostra = fase => {
+    const n = ISP.note.get(k);
+    stato.className = 'stato-invio';
+    if (fase === 'salvo') riempi(stato, 'Salvataggio…');
+    else if (fase === 'errore') { stato.classList.add('da-inviare'); riempi(stato, ico('attenzione'), 'Non salvata: controlla la connessione e ritocca il testo'); }
+    else if (n && n.aggiornato_il) { stato.classList.add('inviata'); riempi(stato, ico('fatto'), 'Salvata ' + quandoParlato(n.aggiornato_il)); }
+    else riempi(stato);
+  };
+  mostra();
+
+  const idCampo = 'q-' + k.replace(/[^\w-]/g, '_');
+  const cresci = () => { area.style.height = 'auto'; area.style.height = (area.scrollHeight + 4) + 'px'; };
+  const area = sola ? null : h('textarea', { class: 'nota quaderno', rows: '4', maxlength: '4000', id: idCampo, value: nota ? nota.testo : '',
+    placeholder: 'Scrivi qui i problemi che vedi su questa commessa…',
+    oninput: () => { cresci(); salvaNotaQuaderno(r, area.value, mostra, 700); },
+    onblur: () => { if (_attese.has('q|' + k)) salvaNotaQuaderno(r, area.value, mostra, 0); } });   // uscendo dal campo salva subito
+  if (area && nota) requestAnimationFrame(cresci);
+
+  let foto = null;
+  if (!sola) {
+    const tastoGalleria = h('button', { class: 'tasto chiaro', type: 'button', onclick: () => apriGalleria(r, conta) });
+    const conta = () => {
+      const n = (ISP.foto.get(k) || []).length;
+      riempi(tastoGalleria, ico('galleria'), n ? 'Galleria (' + n + ')' : 'Galleria');
+      tastoGalleria.classList.toggle('con-foto', n > 0);
+    };
+    conta();
+    const scatto = campoFoto(r, true, conta);
+    foto = h('div', { class: 'foto-riga' }, scatto,
+      h('button', { class: 'tasto', type: 'button', 'aria-label': 'Scatta una foto per la commessa ' + r.commessa, onclick: () => scatto.click() },
+        ico('fotocamera'), 'Scatta foto'),
+      tastoGalleria);
+  }
+
+  return h('article', { class: 'scheda' },
+    h('div', { class: 'capo' },
+      h('div', null, h('span', { class: 'cod' }, r.commessa),
+        h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
+      h('div', { class: 'etichette' }, h('span', { class: 'etichetta del-sub', style: 'background:' + tinta(r.sub_id) }, nomeSub(r.sub_id)))),
+    h('div', { class: 'numeri' },
+      sola ? numero('Riconsegnati', pz(r.chiuse) + ' pz') : numero('In casa dal Sub', pz(r.aperte) + ' pz', true),
+      numero('Commessa', pz(r.lanciata) + ' pz'),
+      numero('Scadenza', fmtData(r.scadenza) || '—')),
+    bolletteInCasa(r),
+    bolletteRiconsegnate(r),
+    h('div', { class: 'quaderno-box' },
+      h('label', { for: sola ? null : idCampo }, ico('matita'), 'Le mie note'),
+      sola ? h('div', { class: 'testo-nota quaderno-letto' }, nota ? nota.testo : '') : area,
+      sola ? (nota ? h('span', { class: 'chi-quando' }, 'Scritta ' + quandoParlato(nota.aggiornato_il)) : null) : stato),
+    foto);
+}
+
+// Salva la nota poco dopo l'ultima lettera (o subito, uscendo dal campo).
+function salvaNotaQuaderno(r, testo, mostra, attesa) {
+  const k = chiave(r.sub_id, r.commessa), kk = 'q|' + k;
+  clearTimeout(_attese.get(kk));
+  mostra('salvo');
+  const t = setTimeout(async () => {
+    try {
+      const ora = await q(sb.rpc('salva_nota_ispezione', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: testo }));
+      if (testo.trim()) ISP.note.set(k, { sub_id: r.sub_id, commessa: r.commessa, testo: testo.trim(), aggiornato_il: ora || new Date().toISOString() });
+      else ISP.note.delete(k);
+      if (_attese.get(kk) === t) { _attese.delete(kk); mostra('fatto'); }     // se intanto ha scritto ancora, parla il salvataggio dopo
+    } catch (e) {
+      if (_attese.get(kk) === t) { _attese.delete(kk); mostra('errore'); }
+      gestisciErrore(e, 'nota');
+    }
+  }, attesa);
+  _attese.set(kk, t);
+}
+
+/* Il campo nascosto che apre la fotocamera (conFotocamera) o le foto gia' nel
+   telefono. Sul computer si apre in ogni caso la scelta di un file. */
+function campoFoto(r, conFotocamera, fatto) {
+  const campo = h('input', { type: 'file', accept: 'image/*', class: 'nascosto', capture: conFotocamera ? 'environment' : null,
+    multiple: !conFotocamera, tabindex: '-1', 'aria-hidden': 'true',
+    onchange: () => { const scelte = [...campo.files]; campo.value = ''; nuoveFoto(r, scelte).then(fatto); } });
+  return campo;
+}
+
+/* Rimpicciolisce la foto (lato lungo 1600 px, JPEG) e ci scrive sotto una
+   fascia con commessa, Sub e ora: il riferimento resta anche quando la foto
+   viene salvata nella galleria del telefono. */
+async function preparaFoto(file, r) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, ko) => {
+      const i = new Image();
+      i.onload = () => ok(i); i.onerror = () => ko(new Error('foto-illeggibile'));
+      i.src = url;
+    });
+    if (!img.naturalWidth) throw new Error('foto-illeggibile');
+    const scala = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.round(img.naturalWidth * scala), a = Math.round(img.naturalHeight * scala);
+    const fascia = Math.max(30, Math.round(Math.max(w, a) * 0.035));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = a + fascia;
+    const x = c.getContext('2d');
+    x.drawImage(img, 0, 0, w, a);
+    x.fillStyle = '#2d2620'; x.fillRect(0, a, w, fascia);
+    x.fillStyle = '#ffffff'; x.textBaseline = 'middle';
+    x.font = '600 ' + Math.round(fascia * 0.52) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    x.fillText('Commessa ' + r.commessa + ' · ' + nomeSub(r.sub_id) + ' · ' + fmtQuando(new Date().toISOString()), Math.round(fascia * 0.4), a + fascia / 2, w - Math.round(fascia * 0.8));
+    return await new Promise((ok, ko) => c.toBlob(b => b ? ok(b) : ko(new Error('foto-illeggibile')), 'image/jpeg', 0.82));
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function nuoveFoto(r, scelte) {
+  const k = chiave(r.sub_id, r.commessa);
+  let fatte = 0;
+  for (const file of scelte) {
+    toast(scelte.length > 1 ? 'Salvo le foto… (' + (fatte + 1) + ' di ' + scelte.length + ')' : 'Salvo la foto…');
+    let percorso = null;
+    try {
+      const blob = await preparaFoto(file, r);
+      percorso = r.sub_id + '/' + r.commessa + '/' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + String(Math.random()).slice(2)) + '.jpg';
+      const { error } = await sb.storage.from('ispezione').upload(percorso, blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) throw error;
+      const id = await q(sb.rpc('registra_foto_ispezione', { p_sub: r.sub_id, p_commessa: r.commessa, p_percorso: percorso }));
+      if (!ISP.foto.has(k)) ISP.foto.set(k, []);
+      ISP.foto.get(k).push({ id, sub_id: r.sub_id, commessa: r.commessa, percorso, creata_il: new Date().toISOString() });
+      ISP.file.set(percorso, { blob, url: URL.createObjectURL(blob) });
+      fatte++;
+    } catch (e) {
+      console.error('foto', e);
+      if (percorso) Promise.resolve(sb.storage.from('ispezione').remove([percorso])).catch(() => {});   // niente file senza riga
+      const msg = String(e && e.message || '');
+      if (msg === 'foto-illeggibile') toast('Non riesco a leggere questa foto: riprova a scattarla.');
+      else if (/Troppe foto/.test(msg)) toast('Su questa commessa ci sono già 40 foto: eliminane qualcuna.');
+      else if (/non aperta/.test(msg)) toast('Questa commessa è già stata riconsegnata: non prende più foto.');
+      else await gestisciErrore(e, 'foto');
+      return fatte;
+    }
+  }
+  if (fatte) toast((fatte === 1 ? 'Foto archiviata' : fatte + ' foto archiviate') + ' sulla commessa ' + r.commessa);
+  return fatte;
+}
+
+// Il file di una foto: si scarica una volta sola per apertura della pagina.
+async function fileFoto(f) {
+  let c = ISP.file.get(f.percorso);
+  if (!c) {
+    const { data, error } = await sb.storage.from('ispezione').download(f.percorso);
+    if (error || !data) throw error || new Error('foto');
+    c = { blob: data, url: URL.createObjectURL(data) };
+    ISP.file.set(f.percorso, c);
+  }
+  return c;
+}
+
+/* Salva le foto fuori da Note Av. iPhone: il foglio «Condividi», da cui si
+   sceglie «Salva immagine» (va in Foto). Android e computer: scaricamento
+   (cartella Download, che il telefono mostra anche nella galleria). Il nome
+   del file porta commessa e Sub. */
+async function salvaFotoFuori(r, foto) {
+  try {
+    const file = [];
+    for (const f of foto) {
+      const d = new Date(f.creata_il);
+      const nome = ('Commessa ' + r.commessa + ' - ' + nomeSub(r.sub_id) + ' - ' + iso(d) + ' ' + pad(d.getHours()) + '.' + pad(d.getMinutes())
+        + ' (' + ((ISP.foto.get(chiave(r.sub_id, r.commessa)) || []).indexOf(f) + 1) + ').jpg').replace(/[\\/:*?"<>|]/g, ' ');
+      file.push(new File([(await fileFoto(f)).blob], nome, { type: 'image/jpeg' }));
+    }
+    if (IOS && navigator.canShare && navigator.canShare({ files: file })) {
+      try { await navigator.share({ files: file }); } catch (e) { if (e.name !== 'AbortError') throw e; }
+      return;
+    }
+    for (const x of file) {
+      const url = URL.createObjectURL(x);
+      const a = h('a', { href: url, download: x.name, style: 'display:none' });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+      await new Promise(ok => setTimeout(ok, 350));       // un file alla volta, o il browser ne blocca qualcuno
+    }
+    toast((file.length === 1 ? 'Foto salvata' : file.length + ' foto salvate') + (TELEFONO ? ': la trovi nella galleria, in «Download».' : ' nella cartella Download.'));
+  } catch (e) { gestisciErrore(e, 'salva-foto'); }
+}
+
+function apriGalleria(r, fatto) {
+  const k = chiave(r.sub_id, r.commessa);
+  const elenco = () => ISP.foto.get(k) || [];
+  const dove = TELEFONO ? 'sul telefono' : 'sul computer';
+  const dentro = h('div', { class: 'galleria' });
+  const dopo = () => { fatto(); griglia(); };
+  const scatto = campoFoto(r, true, dopo), scegli = campoFoto(r, false, dopo);
+  const f = finestra(h('h3', null, 'Foto · ' + r.commessa),
+    h('p', { class: 'tenue', style: 'margin:0 0 12px' }, [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · ')),
+    scatto, scegli, dentro);
+  f.box.classList.add('larga');
+
+  const immagine = (x, classe) => {
+    const img = h('img', { alt: 'Foto della commessa ' + r.commessa + ', ' + fmtQuando(x.creata_il), class: classe });
+    fileFoto(x).then(c => { img.src = c.url; }, () => { img.replaceWith(h('span', { class: 'foto-persa' }, 'Foto non disponibile')); });
+    return img;
+  };
+
+  function griglia() {
+    const foto = elenco();
+    riempi(dentro,
+      foto.length
+        ? h('div', { class: 'foto-griglia' }, foto.map((x, i) => h('button', { class: 'foto-mini', type: 'button', title: 'Scattata ' + quandoParlato(x.creata_il),
+            onclick: () => grande(i) }, immagine(x))))
+        : h('div', { class: 'vuoto' }, h('b', null, 'Ancora nessuna foto'), 'Scatta la prima: resta archiviata su questa commessa.'),
+      h('div', { class: 'foto-azioni' },
+        h('button', { class: 'tasto', type: 'button', onclick: () => scatto.click() }, ico('fotocamera'), 'Scatta foto'),
+        h('button', { class: 'tasto chiaro', type: 'button', onclick: () => scegli.click() }, ico('galleria'), TELEFONO ? 'Scegli dal telefono' : 'Scegli un file'),
+        foto.length ? h('button', { class: 'tasto chiaro', type: 'button', onclick: () => salvaFotoFuori(r, foto) }, ico('installa'),
+          (foto.length === 1 ? 'Salva ' : 'Salva tutte ') + dove) : null),
+      h('p', { class: 'nota-piccola' }, 'Le foto restano qui finché la commessa è aperta: quando viene riconsegnata si cancellano da sole. Quelle che ti servono salvale prima '
+        + dove + (IOS ? ' (nel riquadro che si apre scegli «Salva immagine»).' : '.')));
+  }
+
+  function grande(i) {
+    const foto = elenco();
+    const x = foto[i];
+    if (!x) return griglia();
+    const elimina = h('button', { class: 'tasto chiaro pericolo', type: 'button', onclick: async () => {
+      if (!confirm('Vuoi eliminare questa foto? Non si può recuperare.')) return;
+      elimina.disabled = true;
+      try {
+        const { error } = await sb.storage.from('ispezione').remove([x.percorso]);
+        if (error) throw error;
+        await q(sb.rpc('elimina_foto_ispezione', { p_id: x.id }));
+        ISP.foto.set(k, elenco().filter(y => y !== x));
+        const c = ISP.file.get(x.percorso);
+        if (c) { URL.revokeObjectURL(c.url); ISP.file.delete(x.percorso); }
+        toast('Foto eliminata.');
+        dopo();
+      } catch (e) { elimina.disabled = false; gestisciErrore(e, 'elimina-foto'); }
+    } }, ico('cestino'), 'Elimina');
+    riempi(dentro,
+      h('div', { class: 'foto-grande' }, immagine(x)),
+      h('div', { class: 'foto-sfoglia' },
+        h('button', { class: 'freccia', type: 'button', 'aria-label': 'Foto prima', disabled: i === 0, onclick: () => grande(i - 1) }, '‹'),
+        h('span', null, 'Foto ' + (i + 1) + ' di ' + foto.length + ' · scattata ' + quandoParlato(x.creata_il)),
+        h('button', { class: 'freccia', type: 'button', 'aria-label': 'Foto dopo', disabled: i === foto.length - 1, onclick: () => grande(i + 1) }, '›')),
+      h('div', { class: 'foto-azioni' },
+        h('button', { class: 'tasto', type: 'button', onclick: () => salvaFotoFuori(r, [x]) }, ico('installa'), 'Salva ' + dove),
+        elimina,
+        h('button', { class: 'tasto chiaro', type: 'button', onclick: griglia }, ico('galleria'), 'Tutte le foto')));
+  }
+
+  griglia();
+}
+
+/* ---------------------------------------------------------------------------
    Menu / Aiuto: guida, installazione, notifiche, aggiornamenti, uscita
    --------------------------------------------------------------------------- */
 
@@ -2255,7 +2598,7 @@ function apriMenu() {
     h('div', { class: 'menu-aiuto' },
       sub ? h('button', { class: 'tasto pieno', onclick: () => { f.chiudi(); apriGuida(0); } }, ico('aiuto'), 'Come funziona Note Av') : null,
       sub ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); apriAvviso(false); } }, ico('attenzione'), 'Avviso sulle assegnazioni') : null,
-      !sub && S.subs.some(s => s.sparo) ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); vai('sparo'); } }, ico('barcode'), 'Prova dello Sparo') : null,
+      S.io === 'admin' && S.subs.some(s => s.sparo) ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); vai('sparo'); } }, ico('barcode'), 'Prova dello Sparo') : null,
       standalone() ? null : h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); installa(); } }, ico(TELEFONO ? 'telefono' : 'schermo'), TELEFONO ? 'Metti Note Av sul telefono' : 'Installa Note Av sul computer'),
       avvisi,
       h('p', { class: 'nota-piccola' }, testoAggiornato() + '. I pezzi si aggiornano circa ogni 2 ore; le note arrivano subito.'),
@@ -2367,6 +2710,7 @@ function aggiornaInviti() {
    --------------------------------------------------------------------------- */
 
 function statoNotifiche() {
+  if (S.io === 'ispettore') return 'non-supportate';     // il quaderno non riceve messaggi: niente avvisi
   const ok = CFG.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   if (!ok) return IOS && !standalone() ? 'ios-home' : 'non-supportate';
   if (Notification.permission === 'granted') return 'attive';
@@ -2428,6 +2772,7 @@ async function controlloPeriodico() {
     if (cambiati) { try { S.subs = await q(sb.from('sub').select('*').order('ordine').order('nome')); } catch (e) { /* al giro dopo */ } }
     if (S.vista === 'bacheca') return vistaBacheca();
     if (S.vista === 'sparo') return vistaSparo();
+    if (S.vista === 'quaderno') return cambiati ? vistaQuaderno() : undefined;
     await contaDaLeggere();
     aggiornaConta();
     if (S.vista === 'righe' && !S.archivio && (S.daLeggere || cambiati)) return vistaRighe();

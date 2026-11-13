@@ -2590,7 +2590,7 @@ function apriGalleria(r, fatto) {
    chiede «Ristampo?»: No la toglie, Si' la tiene.
    --------------------------------------------------------------------------- */
 
-const CUC = { righe: [], url: new Map(), urlDel: 0, spunte: new Set() };
+const CUC = { righe: [], url: new Map(), spunte: new Set() };
 const artCuc = r => r.modello + ' ' + r.parte + ' ' + r.colore;
 const primaScad = r => (r.commesse || []).reduce((m, x) => (x.scad && x.scad < m ? x.scad : m), '9999');
 
@@ -2599,16 +2599,72 @@ async function vistaCuciture() {
   CUC.righe = await q(storico
     ? sb.from('cuciture_riga').select('*').neq('stato', 'da_stampare').order('tolta_il', { ascending: false }).limit(1000)
     : sb.from('cuciture_riga').select('*').eq('stato', 'da_stampare'));
-  // le foto stanno in un bucket privato: indirizzi firmati, validi 6 ore (rinnovati dopo 5)
-  if (Date.now() - CUC.urlDel > 5 * 3600e3) { CUC.url.clear(); CUC.urlDel = Date.now(); }
-  const mancano = [...new Set(CUC.righe.map(r => r.foto).filter(p => p && !CUC.url.has(p)))];
-  if (mancano.length) {
-    const { data } = await sb.storage.from('cuciture').createSignedUrls(mancano, 6 * 3600);
-    for (const d of data || []) if (d && d.signedUrl) CUC.url.set(d.path, d.signedUrl);
-  }
   const presenti = new Set(CUC.righe.map(r => r.id));
   for (const id of [...CUC.spunte]) if (!presenti.has(id)) CUC.spunte.delete(id);
   disegnaCuciture();
+  scaricaFotoCuciture();
+  if (!storico) avvisoNuoviCuciture(CUC.righe);
+}
+
+// L'avviso «Lancio nuovo» (come le finestre di READLY): a chi stampa, quando
+// dall'ultimo «Ho visto» sono arrivate righe nuove o pezzi in piu' su righe gia'
+// in elenco. Il segno di «visto» resta su questo dispositivo; la prima volta si
+// prende quello che c'e' come gia' visto (niente avviso per l'elenco iniziale).
+function avvisoNuoviCuciture(righe) {
+  if (S.io !== 'cuciture' || document.querySelector('.velo')) return;
+  const t = s => (s ? Date.parse(s) || 0 : 0);
+  const chiave = 'cuc-visto-' + (S.chi.nome_utente || '');
+  const ultima = righe.reduce((m, r) => Math.max(m, t(r.creata_il), ...(r.commesse || []).map(x => t(x.il))), 0);
+  const visto = Number(ricordato(chiave)) || 0;
+  if (!visto) { if (ultima) ricorda(chiave, String(ultima)); return; }
+  if (ultima <= visto) return;
+  const nuove = righe.filter(r => t(r.creata_il) > visto);
+  const cresciute = righe.filter(r => t(r.creata_il) <= visto && (r.commesse || []).some(x => t(x.il) > visto));
+  if (!nuove.length && !cresciute.length) { ricorda(chiave, String(ultima)); return; }
+
+  const pzNuovi = r => (r.commesse || []).filter(x => t(x.il) > visto).reduce((s, x) => s + (x.q || 0), 0);
+  const voce = (r, piu) => h('li', null, h('b', null, artCuc(r)),
+    ' · ' + (piu ? '+' + pz(pzNuovi(r)) : pz(r.qta)) + ' pz',
+    !piu && r.gia_stampata_il && r.ristampa == null ? h('span', { class: 'cuc-av-ristampo' }, ' già stampata: Ristampo?') : null);
+  const MAX = 8;
+  const elenco = [...nuove.map(r => voce(r, false)), ...cresciute.map(r => voce(r, true))];
+  const titolo = nuove.length
+    ? (nuove.length === 1 ? '1 articolo nuovo' : nuove.length + ' articoli nuovi') + ' da stampare'
+    : (cresciute.length === 1 ? '1 articolo' : cresciute.length + ' articoli') + ' in elenco con pezzi in più';
+  const sotto = [nuove.length && cresciute.length ? 'e pezzi in più su ' + (cresciute.length === 1 ? '1 articolo' : cresciute.length + ' articoli') + ' già in elenco' : '',
+    'alle ' + new Date(ultima).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })].filter(Boolean).join(' · ');
+  const f = finestraObbligata(
+    h('div', { class: 'cuc-avviso' },
+      h('div', { class: 'cuc-av-etichetta' }, 'NOTE AV · LANCIO NUOVO'),
+      h('h3', null, titolo),
+      h('p', { class: 'cuc-av-sotto' }, sotto),
+      h('ul', { class: 'cuc-av-elenco' }, elenco.slice(0, MAX),
+        elenco.length > MAX ? h('li', { class: 'cuc-av-altri' }, 'e altri ' + (elenco.length - MAX)) : null),
+      h('button', { class: 'tasto pieno', onclick: () => {
+        ricorda(chiave, String(ultima));
+        f.chiudi();
+        if (S.vista !== 'cuciture') vai('cuciture');
+      } }, 'Ho visto')));
+  f.box.classList.add('cuc-avviso-box');
+  f.box.querySelector('button').focus();
+}
+
+// Le foto stanno in un bucket privato e la pagina (CSP) mostra solo immagini
+// proprie: si scaricano come file (una volta per apertura) e si mostrano da blob:.
+async function scaricaFotoCuciture() {
+  const mancano = [...new Set(CUC.righe.map(r => r.foto).filter(p => p && !CUC.url.has(p)))];
+  const prendi = async () => {
+    for (let p; (p = mancano.shift());) {
+      const { data } = await sb.storage.from('cuciture').download(p).catch(() => ({}));
+      CUC.url.set(p, data ? URL.createObjectURL(data) : null);
+      for (const el of document.querySelectorAll('.cuc-foto[data-foto]')) {
+        if (el.dataset.foto !== p) continue;
+        el.replaceWith(data ? h('img', { class: 'cuc-foto', src: CUC.url.get(p), alt: el.dataset.alt, loading: 'lazy' })
+          : h('div', { class: 'cuc-foto vuota' }, 'Foto non disponibile'));
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, prendi));
 }
 
 function disegnaCuciture() {
@@ -2651,7 +2707,8 @@ function schedaCuciture(r, storico) {
           barraCuciture();
         } })),
     url ? h('img', { class: 'cuc-foto', src: url, alt: 'Foto di ' + artCuc(r), loading: 'lazy' })
-      : h('div', { class: 'cuc-foto vuota' }, r.diba_file ? 'Distinta senza foto' : 'Foto in arrivo con la Distinta'),
+      : r.foto && !CUC.url.has(r.foto) ? h('div', { class: 'cuc-foto vuota', 'data-foto': r.foto, 'data-alt': 'Foto di ' + artCuc(r) }, 'Carico la foto…')
+      : h('div', { class: 'cuc-foto vuota' }, r.foto ? 'Foto non disponibile' : r.diba_file ? 'Distinta senza foto' : 'Foto in arrivo con la Distinta'),
     h('div', { class: 'cuc-testo' },
       h('div', { class: 'cuc-art' }, r.modello + ' ' + r.parte + ' ', h('span', { class: 'cuc-col' }, r.colore)),
       r.nome_colore ? h('div', { class: 'cuc-nomecol' }, r.nome_colore) : null,
@@ -2751,7 +2808,7 @@ function apriMenu() {
       S.io === 'admin' && S.subs.some(s => s.sparo) ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); vai('sparo'); } }, ico('barcode'), 'Prova dello Sparo') : null,
       standalone() ? null : h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); installa(); } }, ico(TELEFONO ? 'telefono' : 'schermo'), TELEFONO ? 'Metti Note Av sul telefono' : 'Installa Note Av sul computer'),
       avvisi,
-      h('p', { class: 'nota-piccola' }, testoAggiornato() + '. I pezzi si aggiornano circa ogni 2 ore; le note arrivano subito.'),
+      h('p', { class: 'nota-piccola' }, testoAggiornato() + (S.io === 'cuciture' ? '. I lanci nuovi compaiono pochi minuti dopo che sono sul Carico.' : '. I pezzi si aggiornano circa ogni 2 ore; le note arrivano subito.')),
       TELEFONO ? null : h('div', { class: 'qr-telefono' }, h('img', { src: 'icone/qr-note-av.svg', alt: 'Codice QR di Note Av' }),
         h('span', null, 'Vuoi Note Av anche sul telefono? Inquadra questo codice con la fotocamera.')),
       sub ? h('p', { class: 'nota-piccola' }, 'Hai bisogno? Chiama l’Ufficio Avanzamento Produzione.') : null,
@@ -2847,7 +2904,8 @@ function aggiornaInviti() {
     if (!S.pushRinnovata) { S.pushRinnovata = true; iscriviNotifiche().catch(e => console.warn('iscrizione push', e)); }   // rinnova in silenzio, una volta
   } else if (st === 'da-chiedere' && !invitoChiuso('notifiche')) {
     pezzi.push(h('div', { class: 'banner' }, ico('campanella'),
-      h('span', null, S.io === 'admin' ? 'Vuoi un avviso quando un Sub risponde?' : 'Vuoi che il telefono ti avvisi quando l’ufficio ti scrive?'),
+      h('span', null, S.io === 'admin' ? 'Vuoi un avviso quando un Sub risponde?'
+        : S.io === 'cuciture' ? 'Vuoi un avviso, anche a pagina chiusa, quando arrivano articoli nuovi da stampare?' : 'Vuoi che il telefono ti avvisi quando l’ufficio ti scrive?'),
       h('button', { class: 'tasto piccolo', onclick: chiediNotifiche }, 'Sì, avvisami'),
       h('button', { class: 'link', onclick: () => chiudiInvito('notifiche') }, 'Più tardi')));
   }
@@ -2860,7 +2918,7 @@ function aggiornaInviti() {
    --------------------------------------------------------------------------- */
 
 function statoNotifiche() {
-  if (S.io === 'ispettore' || S.io === 'cuciture') return 'non-supportate';     // quaderno e Cuciture non ricevono messaggi: niente avvisi
+  if (S.io === 'ispettore') return 'non-supportate';     // il quaderno non riceve messaggi: niente avvisi (le Cuciture si': «Lancio nuovo»)
   const ok = CFG.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   if (!ok) return IOS && !standalone() ? 'ios-home' : 'non-supportate';
   if (Notification.permission === 'granted') return 'attive';
@@ -2923,6 +2981,8 @@ async function controlloPeriodico() {
     if (S.vista === 'bacheca') return vistaBacheca();
     if (S.vista === 'sparo') return vistaSparo();
     if (S.vista === 'quaderno') return cambiati ? vistaQuaderno() : undefined;
+    if (cambiati && S.vista === 'cucstorico' && S.io === 'cuciture')      // anche dallo Storico: avviso se arriva un lancio
+      avvisoNuoviCuciture(await q(sb.from('cuciture_riga').select('id,modello,parte,colore,qta,commesse,creata_il,gia_stampata_il').eq('stato', 'da_stampare')));
     if (S.vista === 'cuciture' || S.vista === 'cucstorico') return cambiati ? vistaCuciture() : undefined;
     if (S.io === 'cuciture') return;
     await contaDaLeggere();

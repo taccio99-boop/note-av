@@ -22,7 +22,7 @@ const sb = (CFG.supabaseUrl && CFG.supabaseKey && window.supabase)
 const app = document.getElementById('app');
 const S = {
   chi: null,            // { ruolo, sub_id, nome_utente }
-  io: null,             // 'admin' | 'sub' | 'ispettore'
+  io: null,             // 'admin' | 'sub' | 'ispettore' | 'cuciture'
   subs: [],
   stato: null,
   vista: null,
@@ -44,8 +44,9 @@ const NOMI_VISTA = {
   admin: { bacheca: 'Bacheca', righe: 'Righe', carico: 'Carico', consegne: 'Consegne', rientri: 'Rientri', accessi: 'Accessi' },
   sub: { righe: 'Note', carico: 'Lavoro', consegne: 'Consegne' },
   ispettore: { quaderno: 'Quaderno' },
+  cuciture: { cuciture: 'Da stampare', cucstorico: 'Storico' },
 };
-const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno' };
+const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno', cuciture: 'documento', cucstorico: 'storico' };
 const COLONNE = [
   ['da_controllare', 'Da controllare'],
   ['in_attesa', 'In attesa di risposta'],
@@ -428,7 +429,7 @@ async function dopoAccesso(chi) {
   // Animazione d'ingresso: l'Admin la vede a ogni apertura, i Sub una volta al giorno.
   if (S.io === 'admin' ? !S.splashFatto : ricordato('splash') !== oggiIso()) { ricorda('splash', oggiIso()); await splash(); }
   S.lunedi = lunediDi(new Date());
-  S.vista = S.io === 'admin' ? 'bacheca' : S.io === 'ispettore' ? 'quaderno' : 'righe';
+  S.vista = S.io === 'admin' ? 'bacheca' : S.io === 'ispettore' ? 'quaderno' : S.io === 'cuciture' ? 'cuciture' : 'righe';
   S.subSel = S.io === 'sub' ? S.chi.sub_id : '*';
   try { await caricaBase(); } catch (e) { return gestisciErrore(e, 'base'); }
   disegna();
@@ -637,9 +638,10 @@ function testoAggiornato() {
 
 function disegna() {
   const sub = S.io === 'sub';
-  const viste = sub ? ['righe', 'carico', 'consegne'] : S.io === 'ispettore' ? ['quaderno']
+  const viste = sub ? ['righe', 'carico', 'consegne'] : S.io === 'ispettore' ? ['quaderno'] : S.io === 'cuciture' ? ['cuciture', 'cucstorico']
     : ['bacheca', 'righe', 'carico', 'consegne', 'rientri', 'accessi'];
-  const titolo = sub ? nomeSub(S.chi.sub_id) : S.io === 'ispettore' ? 'Note Av · Ispettore' : 'Note Av';
+  const titolo = sub ? nomeSub(S.chi.sub_id) : S.io === 'ispettore' ? 'Note Av · Ispettore' : S.io === 'cuciture' ? 'Note Av · Cuciture' : 'Note Av';
+  document.body.classList.toggle('rosa', S.io === 'cuciture');       // la pagina delle Cuciture e' rosa
   const testata = h('header', { class: 'testata' },
     h('div', { class: 'riga1' }, logo(),
       h('div', { class: 'titolo' }, h('b', null, titolo), h('small', { id: 'aggiornato' }, testoAggiornato())),
@@ -657,7 +659,7 @@ function disegna() {
   document.body.classList.toggle('con-sparo', !!modoSparo());     // piu' spazio in fondo per il tasto
   aggiornaConta();
   aggiornaInviti();
-  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo, quaderno: vistaQuaderno })[S.vista]()
+  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo, quaderno: vistaQuaderno, cuciture: vistaCuciture, cucstorico: vistaCuciture })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
 }
 
@@ -747,7 +749,7 @@ const numeriBolle = r => (r.bolle || []).concat(r.riconsegnate || []).map(b => b
 function boxCerca(aggiorna) {
   const x = h('button', { class: 'cerca-x' + (S.cerca ? '' : ' nascosto'), type: 'button', 'aria-label': 'Cancella la ricerca' }, '×');
   const input = h('input', { type: 'search', value: S.cerca || '', 'aria-label': 'Cerca una commessa',
-    placeholder: S.io === 'sub' ? 'Cerca: numero commessa, modello…' : 'Cerca: commessa, modello, Sub, nota…',
+    placeholder: S.io === 'sub' ? 'Cerca: numero commessa, modello…' : S.vista === 'cuciture' || S.vista === 'cucstorico' ? 'Cerca: modello, parte, colore, commessa…' : 'Cerca: commessa, modello, Sub, nota…',
     autocomplete: 'off', autocorrect: 'off', autocapitalize: 'none', spellcheck: 'false', enterkeyhint: 'search',
     oninput: () => { S.cerca = input.value; x.classList.toggle('nascosto', !input.value); aggiorna(); },
     onkeydown: ev => { if (ev.key === 'Enter') input.blur(); else if (ev.key === 'Escape') svuota(); } });
@@ -2581,6 +2583,153 @@ function apriGalleria(r, fatto) {
 }
 
 /* ---------------------------------------------------------------------------
+   Cuciture (database\cuciture.sql): la pagina rosa con gli Articoli Gucci
+   (Modello + Parte + Colore) di cui stampare la Line List. L'elenco lo riempie
+   il PC dell'ufficio; qui si spuntano le righe stampate e si tolgono (vanno
+   nello Storico). Se un Articolo gia' stampato torna lanciato, la sua riga
+   chiede «Ristampo?»: No la toglie, Si' la tiene.
+   --------------------------------------------------------------------------- */
+
+const CUC = { righe: [], url: new Map(), urlDel: 0, spunte: new Set() };
+const artCuc = r => r.modello + ' ' + r.parte + ' ' + r.colore;
+const primaScad = r => (r.commesse || []).reduce((m, x) => (x.scad && x.scad < m ? x.scad : m), '9999');
+
+async function vistaCuciture() {
+  const storico = S.vista === 'cucstorico';
+  CUC.righe = await q(storico
+    ? sb.from('cuciture_riga').select('*').neq('stato', 'da_stampare').order('tolta_il', { ascending: false }).limit(1000)
+    : sb.from('cuciture_riga').select('*').eq('stato', 'da_stampare'));
+  // le foto stanno in un bucket privato: indirizzi firmati, validi 6 ore (rinnovati dopo 5)
+  if (Date.now() - CUC.urlDel > 5 * 3600e3) { CUC.url.clear(); CUC.urlDel = Date.now(); }
+  const mancano = [...new Set(CUC.righe.map(r => r.foto).filter(p => p && !CUC.url.has(p)))];
+  if (mancano.length) {
+    const { data } = await sb.storage.from('cuciture').createSignedUrls(mancano, 6 * 3600);
+    for (const d of data || []) if (d && d.signedUrl) CUC.url.set(d.path, d.signedUrl);
+  }
+  const presenti = new Set(CUC.righe.map(r => r.id));
+  for (const id of [...CUC.spunte]) if (!presenti.has(id)) CUC.spunte.delete(id);
+  disegnaCuciture();
+}
+
+function disegnaCuciture() {
+  const storico = S.vista === 'cucstorico';
+  const elenco = CUC.righe.slice();
+  if (!storico) elenco.sort((a, b) => primaScad(a).localeCompare(primaScad(b)) || artCuc(a).localeCompare(artCuc(b)));
+  const domande = storico ? 0 : elenco.filter(r => r.gia_stampata_il && r.ristampa == null).length;
+  const frase = storico
+    ? 'Le Line List già stampate, dalla più recente.' + (elenco.length >= 1000 ? ' Si vedono le ultime 1000: cerca per trovare le altre.' : '')
+    : (elenco.length === 1 ? '1 articolo' : elenco.length + ' articoli') + ' da stampare · ' + pz(elenco.reduce((t, r) => t + r.qta, 0)) + ' pz'
+      + (domande ? ' · ' + domande + ' da decidere se ristampare' : '');
+
+  const voci = elenco.map(r => ({ el: schedaCuciture(r, storico),
+    testi: [r.modello, r.parte, r.colore, artCuc(r), r.nome_colore, r.descrizione, ...(r.commesse || []).map(x => x.c)] }));
+  const schede = h('div', { class: 'elenco-schede cuc-elenco' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+
+  riempi(corpo(),
+    h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
+      h('h2', null, storico ? 'Storico delle Line List' : saluto() + '! Ecco le Line List da stampare'),
+      h('p', null, frase))),
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
+      : vuoto(storico ? 'Storico vuoto' : 'Nessuna Line List da stampare',
+          storico ? 'Qui finiscono le righe tolte dopo la stampa.' : 'Quando arriva un lancio nuovo, gli articoli compaiono qui da soli.'),
+    S.io === 'admin' ? h('p', { class: 'piede' }, h('button', { class: 'link', onclick: () => vai(storico ? 'cuciture' : 'cucstorico') },
+      storico ? '← Torna alle Line List da stampare' : 'Vedi lo Storico delle Line List')) : null);
+  ricerca.aggiorna();
+  barraCuciture();
+}
+
+function schedaCuciture(r, storico) {
+  const domanda = !storico && r.gia_stampata_il && r.ristampa == null;
+  const url = r.foto && CUC.url.get(r.foto);
+  const scheda = h('article', { class: 'scheda cuc' + (storico ? ' nel-storico' : '') + (CUC.spunte.has(r.id) ? ' spuntata' : '') + (domanda ? ' da-decidere' : '') },
+    storico ? null : h('label', { class: 'cuc-spunta', title: 'Line List stampata' },
+      h('input', { type: 'checkbox', checked: CUC.spunte.has(r.id), 'aria-label': 'Line List stampata: ' + artCuc(r),
+        onchange: ev => {
+          if (ev.target.checked) CUC.spunte.add(r.id); else CUC.spunte.delete(r.id);
+          scheda.classList.toggle('spuntata', ev.target.checked);
+          barraCuciture();
+        } })),
+    url ? h('img', { class: 'cuc-foto', src: url, alt: 'Foto di ' + artCuc(r), loading: 'lazy' })
+      : h('div', { class: 'cuc-foto vuota' }, r.diba_file ? 'Distinta senza foto' : 'Foto in arrivo con la Distinta'),
+    h('div', { class: 'cuc-testo' },
+      h('div', { class: 'cuc-art' }, r.modello + ' ' + r.parte + ' ', h('span', { class: 'cuc-col' }, r.colore)),
+      r.nome_colore ? h('div', { class: 'cuc-nomecol' }, r.nome_colore) : null,
+      r.descrizione ? h('p', { class: 'cosa' }, r.descrizione) : null,
+      h('div', { class: 'cuc-commesse' }, (r.commesse || []).map(x =>
+        h('span', { class: 'cuc-chip' }, h('b', null, x.c), ' · ' + pz(x.q) + ' pz' + (x.scad ? ' · scad. ' + fmtData(x.scad) : ''))))),
+    h('div', { class: 'cuc-dx' },
+      h('div', { class: 'cuc-qta' }, pz(r.qta), h('small', null, 'pezzi')),
+      r.diba ? h('button', { class: 'diba', type: 'button', onclick: () => apriDibaCuciture(r) }, ico('documento'), 'Distinta')
+        : h('span', { class: 'etichetta' }, 'Distinta in arrivo')),
+    domanda ? h('div', { class: 'cuc-ristampa' }, ico('attenzione'),
+      h('span', null, 'Line List già stampata il ', h('b', null, fmtData(r.gia_stampata_il)), '. ', h('b', null, 'Ristampo?')),
+      h('div', { class: 'cuc-si-no' },
+        h('button', { class: 'tasto piccolo', type: 'button', onclick: ev => rispondiRistampa(r, true, ev.currentTarget) }, 'Sì'),
+        h('button', { class: 'tasto piccolo chiaro', type: 'button', onclick: ev => rispondiRistampa(r, false, ev.currentTarget) }, 'No'))) : null,
+    !storico && r.gia_stampata_il && r.ristampa === true
+      ? h('p', { class: 'cuc-nota' }, 'Già stampata il ' + fmtData(r.gia_stampata_il) + ': hai deciso di ristamparla.') : null,
+    storico ? h('div', { class: 'cuc-tolta' },
+      h('span', { class: 'etichetta ' + (r.stato === 'stampata' ? 'verde' : '') },
+        r.stato === 'stampata' ? 'Stampata ' + quandoParlato(r.tolta_il)
+          : 'Non ristampata ' + quandoParlato(r.tolta_il) + (r.gia_stampata_il ? ' (già stampata il ' + fmtData(r.gia_stampata_il) + ')' : '')),
+      h('button', { class: 'link', type: 'button', onclick: ev => rimettiCuciture(r, ev.currentTarget) }, 'Rimetti in elenco')) : null);
+  return scheda;
+}
+
+function barraCuciture() {
+  const barra = document.getElementById('barra');
+  if (!barra) return;
+  const n = CUC.spunte.size;
+  if (S.vista !== 'cuciture' || !n) { barra.replaceChildren(); return; }
+  const box = h('div', { class: 'barra-invio' },
+    h('button', { class: 'tasto', type: 'button', onclick: ev => togliCuciture(ev.currentTarget) }, ico('fatto'),
+      'STAMPATA: TOGLI ' + n + (n === 1 ? ' RIGA' : ' RIGHE')),
+    h('p', { class: 'spiega' }, 'Le righe tolte vanno nello Storico: lì ritrovi cosa hai già stampato.'));
+  if (barra.querySelector('.barra-invio')) box.style.animation = 'none';
+  barra.replaceChildren(box);
+}
+
+async function togliCuciture(tasto) {
+  const ids = [...CUC.spunte];
+  if (!ids.length || !confirm(ids.length === 1 ? 'Line List stampata: tolgo la riga e la metto nello Storico?'
+    : 'Line List stampate: tolgo ' + ids.length + ' righe e le metto nello Storico?')) return;
+  tasto.disabled = true;
+  try {
+    const n = await q(sb.rpc('togli_cuciture', { p_ids: ids }));
+    CUC.spunte.clear();
+    toast(n === 1 ? 'Fatto: 1 riga nello Storico.' : 'Fatto: ' + n + ' righe nello Storico.');
+    await vistaCuciture();
+  } catch (e) { tasto.disabled = false; gestisciErrore(e, 'togli cuciture'); }
+}
+
+async function rispondiRistampa(r, si, tasto) {
+  if (!si && !confirm('Non la ristampi: tolgo la riga di ' + artCuc(r) + '? La ritrovi nello Storico.')) return;
+  tasto.disabled = true;
+  try {
+    await q(sb.rpc('rispondi_ristampa', { p_id: r.id, p_si: si }));
+    CUC.spunte.delete(r.id);
+    toast(si ? 'Va bene: la riga resta, da ristampare.' : 'Riga tolta: è nello Storico.');
+    await vistaCuciture();
+  } catch (e) { tasto.disabled = false; gestisciErrore(e, 'ristampa'); }
+}
+
+async function rimettiCuciture(r, tasto) {
+  tasto.disabled = true;
+  try {
+    const ok = await q(sb.rpc('rimetti_cuciture', { p_id: r.id }));
+    toast(ok ? 'Rimessa tra le Line List da stampare.' : 'C’è già una riga di ' + artCuc(r) + ' da stampare: non la rimetto.');
+    await vistaCuciture();
+  } catch (e) { tasto.disabled = false; gestisciErrore(e, 'rimetti cuciture'); }
+}
+
+async function apriDibaCuciture(r) {
+  const { data, error } = await sb.storage.from('cuciture').createSignedUrl(r.diba, 120);
+  if (error || !data) return toast('Distinta non disponibile.');
+  window.open(data.signedUrl, '_blank', 'noopener');
+}
+
+/* ---------------------------------------------------------------------------
    Menu / Aiuto: guida, installazione, notifiche, aggiornamenti, uscita
    --------------------------------------------------------------------------- */
 
@@ -2598,6 +2747,7 @@ function apriMenu() {
     h('div', { class: 'menu-aiuto' },
       sub ? h('button', { class: 'tasto pieno', onclick: () => { f.chiudi(); apriGuida(0); } }, ico('aiuto'), 'Come funziona Note Av') : null,
       sub ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); apriAvviso(false); } }, ico('attenzione'), 'Avviso sulle assegnazioni') : null,
+      S.io === 'admin' ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); vai('cuciture'); } }, ico('documento'), 'Line List delle Cuciture') : null,
       S.io === 'admin' && S.subs.some(s => s.sparo) ? h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); vai('sparo'); } }, ico('barcode'), 'Prova dello Sparo') : null,
       standalone() ? null : h('button', { class: 'tasto chiaro pieno', onclick: () => { f.chiudi(); installa(); } }, ico(TELEFONO ? 'telefono' : 'schermo'), TELEFONO ? 'Metti Note Av sul telefono' : 'Installa Note Av sul computer'),
       avvisi,
@@ -2710,7 +2860,7 @@ function aggiornaInviti() {
    --------------------------------------------------------------------------- */
 
 function statoNotifiche() {
-  if (S.io === 'ispettore') return 'non-supportate';     // il quaderno non riceve messaggi: niente avvisi
+  if (S.io === 'ispettore' || S.io === 'cuciture') return 'non-supportate';     // quaderno e Cuciture non ricevono messaggi: niente avvisi
   const ok = CFG.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   if (!ok) return IOS && !standalone() ? 'ios-home' : 'non-supportate';
   if (Notification.permission === 'granted') return 'attive';
@@ -2773,6 +2923,8 @@ async function controlloPeriodico() {
     if (S.vista === 'bacheca') return vistaBacheca();
     if (S.vista === 'sparo') return vistaSparo();
     if (S.vista === 'quaderno') return cambiati ? vistaQuaderno() : undefined;
+    if (S.vista === 'cuciture' || S.vista === 'cucstorico') return cambiati ? vistaCuciture() : undefined;
+    if (S.io === 'cuciture') return;
     await contaDaLeggere();
     aggiornaConta();
     if (S.vista === 'righe' && !S.archivio && (S.daLeggere || cambiati)) return vistaRighe();

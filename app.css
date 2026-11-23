@@ -659,3 +659,7 @@ body.rosa .testata .schede button[aria-selected="true"] { background: var(--bg);
 .cuc-av-elenco li.cuc-av-altri { background: none; color: var(--ink-2); padding: 2px 12px; }
 .cuc-av-ristampo { color: var(--accent); font-weight: 700; }
 .cuc-avviso .tasto { display: block; margin: 0 0 4px auto; min-width: 140px; }
+
+/* ⚠️ Chiusure Forzate: dato non attendibile (riga.forzati, database\forzate.sql) */
+.forzato { cursor: help; margin-left: 4px; font-size: 1em; }
+.avviso-forzati { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-2); color: var(--danger); font-size: 14px; font-weight: 600; }

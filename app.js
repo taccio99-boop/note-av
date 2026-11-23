@@ -715,6 +715,20 @@ function numero(etichetta, valore, forte) {
   return h('div', { class: 'numero' + (forte ? ' forte' : '') }, h('span', null, etichetta), h('b', null, valore));
 }
 
+/* Il segno ⚠️ delle Chiusure Forzate (lo stesso della dashboard dell'avanzamento): su
+   questi pezzi GEA dice "finito" ma READLY li ha chiusi a forza, quindi il dato non e'
+   attendibile. r.forzati = pezzi in dubbio (colonna riga.forzati, database\forzate.sql). */
+function segnoForzati(r) {
+  if (!r || !(r.forzati > 0)) return null;
+  const t = 'Dato non attendibile: ' + r.forzati + ' pz risultano già lavorati, ma potrebbero essere ancora da noi (chiusi a forza)';
+  return h('span', { class: 'forzato', title: t, role: 'img', 'aria-label': t }, '⚠️');
+}
+
+function avvisoForzati(r) {
+  if (!r || !(r.forzati > 0)) return null;
+  return h('p', { class: 'avviso-forzati' }, '⚠️ Dato non attendibile: per ' + pz(r.forzati) + ' pz il gestionale dice "finito", ma possono essere ancora in casa. Ti chiediamo conferma ogni mattina.');
+}
+
 /* ---------------------------------------------------------------------------
    Ricerca nelle Righe: piu' parole = devono esserci tutte; non contano
    maiuscole e accenti; nei codici si possono saltare trattini e spazi
@@ -914,9 +928,10 @@ function schedaRiga(r, s) {
         h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
       etichette.length ? h('div', { class: 'etichette' }, etichette) : null),
     h('div', { class: 'numeri' },
-      numero('In casa', pz(r.aperte) + ' pz', true),
+      numero('In casa', [pz(r.aperte) + ' pz ', segnoForzati(r)], true),
       numero('Commessa', pz(r.lanciata) + ' pz'),
       numero('Scadenza', fmtData(r.scadenza) || '—')),
+    avvisoForzati(r),
     bolletteInCasa(r),
     bolletteRiconsegnate(r),
     s.nota && s.nota.testo
@@ -1286,7 +1301,7 @@ async function vistaCarico() {
       h('td', { 'data-l': 'Descrizione' }, r.descrizione || ''),
       h('td', { 'data-l': 'Scadenza' }, fmtData(r.scadenza)),
       h('td', { class: 'num', 'data-l': 'Lanciata' }, pz(r.lanciata)),
-      h('td', { class: 'num', 'data-l': 'Aperte' }, h('b', null, pz(r.aperte))),
+      h('td', { class: 'num', 'data-l': 'Aperte' }, h('b', null, pz(r.aperte)), segnoForzati(r)),
       h('td', { class: 'num', 'data-l': 'In arrivo' }, pz(r.in_arrivo)),
       h('td', { class: 'num', 'data-l': 'Chiuse' }, pz(r.chiuse)),
       h('td', { class: 'num', 'data-l': 'Rimaste' }, pz(r.rimaste)),
@@ -1318,10 +1333,11 @@ function disegnaCaricoSub(elenco, tot) {
         h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
       h('div', { class: 'etichette' }, h('span', { class: 'etichetta' + (r.stato === 'lav' ? ' verde' : '') }, STATI[r.stato] || ''))),
     h('div', { class: 'numeri' },
-      numero('In casa', pz(r.aperte) + ' pz', true),
+      numero('In casa', [pz(r.aperte) + ' pz ', segnoForzati(r)], true),
       numero('In arrivo', pz(r.in_arrivo) + ' pz'),
       numero('Già consegnati', pz(r.chiuse) + ' pz'),
       numero('Scadenza', fmtData(r.scadenza) || '—')),
+    avvisoForzati(r),
     bolletteInCasa(r),
     bolletteRiconsegnate(r),
     dettaglioCarico(r),

@@ -22,7 +22,8 @@ const sb = (CFG.supabaseUrl && CFG.supabaseKey && window.supabase)
 const app = document.getElementById('app');
 const S = {
   chi: null,            // { ruolo, sub_id, nome_utente }
-  io: null,             // 'admin' | 'sub' | 'ispettore' | 'cuciture'
+  io: null,             // 'admin' | 'sub' | 'ispettore' | 'cuciture' | 'qualita'
+  respQualita: false,   // Admin che riceve i messaggi di Qualita' (Simone): scheda «Qualità»
   subs: [],
   stato: null,
   vista: null,
@@ -41,12 +42,13 @@ const S = {
 };
 
 const NOMI_VISTA = {
-  admin: { bacheca: 'Bacheca', righe: 'Righe', carico: 'Carico', consegne: 'Consegne', rientri: 'Rientri', accessi: 'Accessi' },
+  admin: { bacheca: 'Bacheca', righe: 'Righe', carico: 'Carico', consegne: 'Consegne', rientri: 'Rientri', qualita: 'Qualità', accessi: 'Accessi' },
   sub: { righe: 'Note', carico: 'Lavoro', consegne: 'Consegne' },
   ispettore: { quaderno: 'Quaderno' },
   cuciture: { cuciture: 'Da stampare', cucstorico: 'Storico' },
+  qualita: { qcommesse: 'Commesse', qrientri: 'Rientri' },
 };
-const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno', cuciture: 'documento', cucstorico: 'storico' };
+const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno', cuciture: 'documento', cucstorico: 'storico', qualita: 'qualita', qcommesse: 'quaderno', qrientri: 'furgone' };
 const COLONNE = [
   ['da_controllare', 'Da controllare'],
   ['in_attesa', 'In attesa di risposta'],
@@ -122,6 +124,9 @@ const ICONE = {
   galleria: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
   cestino: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
   quaderno: '<path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6z"/><path d="M6 3v18M3.5 7.5h3M3.5 12h3M3.5 16.5h3M10 8h6M10 12h6"/>',
+  qualita: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+  play: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M10 8.5v7l6-3.5z"/>',
+  calendario: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   barcode: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13.5 8v8M17 8v8"/>',
 };
 
@@ -429,11 +434,13 @@ async function dopoAccesso(chi) {
   // Animazione d'ingresso: l'Admin la vede a ogni apertura, i Sub una volta al giorno.
   if (S.io === 'admin' ? !S.splashFatto : ricordato('splash') !== oggiIso()) { ricorda('splash', oggiIso()); await splash(); }
   S.lunedi = lunediDi(new Date());
-  S.vista = S.io === 'admin' ? 'bacheca' : S.io === 'ispettore' ? 'quaderno' : S.io === 'cuciture' ? 'cuciture' : 'righe';
+  S.vista = S.io === 'admin' ? 'bacheca' : S.io === 'ispettore' ? 'quaderno' : S.io === 'cuciture' ? 'cuciture' : S.io === 'qualita' ? 'qcommesse' : 'righe';
+  S.respQualita = S.io === 'admin' && (await facoltativo(sb.rpc('ricevo_qualita'))) === true;
   S.subSel = S.io === 'sub' ? S.chi.sub_id : '*';
   try { await caricaBase(); } catch (e) { return gestisciErrore(e, 'base'); }
   disegna();
   avviaControlloPeriodico();
+  if (S.io === 'qualita' || S.respQualita) aggiornaNonLettiQ();
   if (S.io === 'sub') preparaSparo().catch(e => console.warn('sparo', e));
   if (S.io === 'sub') setTimeout(async () => {
     if (!avvisoLetto()) await apriAvviso(true);
@@ -639,8 +646,9 @@ function testoAggiornato() {
 function disegna() {
   const sub = S.io === 'sub';
   const viste = sub ? ['righe', 'carico', 'consegne'] : S.io === 'ispettore' ? ['quaderno'] : S.io === 'cuciture' ? ['cuciture', 'cucstorico']
-    : ['bacheca', 'righe', 'carico', 'consegne', 'rientri', 'accessi'];
-  const titolo = sub ? nomeSub(S.chi.sub_id) : S.io === 'ispettore' ? 'Note Av · Ispettore' : S.io === 'cuciture' ? 'Note Av · Cuciture' : 'Note Av';
+    : S.io === 'qualita' ? ['qcommesse', 'qrientri']
+    : ['bacheca', 'righe', 'carico', 'consegne', 'rientri'].concat(S.respQualita ? ['qualita'] : [], ['accessi']);
+  const titolo = sub ? nomeSub(S.chi.sub_id) : S.io === 'ispettore' ? 'Note Av · Ispettore' : S.io === 'cuciture' ? 'Note Av · Cuciture' : S.io === 'qualita' ? 'Note Av · Qualità' : 'Note Av';
   document.body.classList.toggle('rosa', S.io === 'cuciture');       // la pagina delle Cuciture e' rosa
   const testata = h('header', { class: 'testata' },
     h('div', { class: 'riga1' }, logo(),
@@ -653,13 +661,16 @@ function disegna() {
       viste.map(v => h('button', { role: 'tab', 'aria-selected': String(S.vista === v), 'data-vista': v,
           onclick: () => v === 'rientri' ? apriRientri() : vai(v) },
         v === 'rientri' ? readly() : ico(ICONE_VISTA[v]), h('span', null, NOMI_VISTA[S.io][v]),
-        v === 'righe' ? h('span', { class: 'conta nascosto' }) : null))));
+        v === 'righe' ? h('span', { class: 'conta nascosto' }) : null,
+        v === 'qcommesse' || v === 'qualita' ? h('span', { class: 'conta conta-q nascosto' }) : null))));
   const corpo = h('main', { id: 'corpo' }, h('div', { class: 'caricamento' }, h('span', { class: 'punto' })));
   app.replaceChildren(testata, h('div', { id: 'inviti' }), corpo, h('div', { id: 'barra' }));
   document.body.classList.toggle('con-sparo', !!modoSparo());     // piu' spazio in fondo per il tasto
   aggiornaConta();
+  aggiornaContaQualita();
   aggiornaInviti();
-  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo, quaderno: vistaQuaderno, cuciture: vistaCuciture, cucstorico: vistaCuciture })[S.vista]()
+  ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo, quaderno: vistaQuaderno, cuciture: vistaCuciture, cucstorico: vistaCuciture,
+     qcommesse: vistaQCommesse, qrientri: vistaQRientri, qualita: vistaQualitaResp })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
 }
 
@@ -673,7 +684,7 @@ function apriRientri() {
 }
 
 function aggiornaConta() {
-  const c = document.querySelector('.schede .conta');
+  const c = document.querySelector('.schede [data-vista="righe"] .conta');
   if (!c) return;
   c.textContent = S.daLeggere > 99 ? '99+' : String(S.daLeggere);
   c.classList.toggle('nascosto', !S.daLeggere);
@@ -1209,7 +1220,8 @@ async function apriDiba(r) {
 }
 
 function finestra(...contenuto) {
-  const chiudi = () => { velo.remove(); document.removeEventListener('keydown', esc); };
+  // f.allaChiusura: se c'e', parte comunque la finestra venga chiusa (×, Esc, fuori)
+  const chiudi = () => { velo.remove(); document.removeEventListener('keydown', esc); if (f.allaChiusura) f.allaChiusura(); };
   const esc = ev => { if (ev.key === 'Escape') chiudi(); };
   const velo = h('div', { class: 'velo', onclick: ev => { if (ev.target === velo) chiudi(); } },
     h('div', { class: 'finestra', role: 'dialog', 'aria-modal': 'true' },
@@ -1217,7 +1229,8 @@ function finestra(...contenuto) {
       contenuto));
   document.addEventListener('keydown', esc);
   document.body.append(velo);
-  return { velo, chiudi, box: velo.firstChild };
+  const f = { velo, chiudi, box: velo.firstChild, allaChiusura: null };
+  return f;
 }
 
 function finestraObbligata(...contenuto) {
@@ -2412,9 +2425,10 @@ function salvaNotaQuaderno(r, testo, mostra, attesa) {
   mostra('salvo');
   const t = setTimeout(async () => {
     try {
-      const ora = await q(sb.rpc('salva_nota_ispezione', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: testo }));
-      if (testo.trim()) ISP.note.set(k, { sub_id: r.sub_id, commessa: r.commessa, testo: testo.trim(), aggiornato_il: ora || new Date().toISOString() });
-      else ISP.note.delete(k);
+      const ql = S.io === 'qualita', note = ql ? QL.note : ISP.note;      // stesso quaderno, due profili separati
+      const ora = await q(sb.rpc(ql ? 'salva_nota_qualita' : 'salva_nota_ispezione', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: testo }));
+      if (testo.trim()) note.set(k, { sub_id: r.sub_id, commessa: r.commessa, testo: testo.trim(), aggiornato_il: ora || new Date().toISOString() });
+      else note.delete(k);
       if (_attese.get(kk) === t) { _attese.delete(kk); mostra('fatto'); }     // se intanto ha scritto ancora, parla il salvataggio dopo
     } catch (e) {
       if (_attese.get(kk) === t) { _attese.delete(kk); mostra('errore'); }
@@ -2460,7 +2474,8 @@ async function preparaFoto(file, r) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-async function nuoveFoto(r, scelte) {
+async function nuoveFoto(r, scelte, nuove) {
+  const A = archivioFoto();
   const k = chiave(r.sub_id, r.commessa);
   let fatte = 0;
   for (const file of scelte) {
@@ -2469,19 +2484,20 @@ async function nuoveFoto(r, scelte) {
     try {
       const blob = await preparaFoto(file, r);
       percorso = r.sub_id + '/' + r.commessa + '/' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + String(Math.random()).slice(2)) + '.jpg';
-      const { error } = await sb.storage.from('ispezione').upload(percorso, blob, { contentType: 'image/jpeg', upsert: false });
+      const { error } = await sb.storage.from(A.bucket).upload(percorso, blob, { contentType: 'image/jpeg', upsert: false });
       if (error) throw error;
-      const id = await q(sb.rpc('registra_foto_ispezione', { p_sub: r.sub_id, p_commessa: r.commessa, p_percorso: percorso }));
-      if (!ISP.foto.has(k)) ISP.foto.set(k, []);
-      ISP.foto.get(k).push({ id, sub_id: r.sub_id, commessa: r.commessa, percorso, creata_il: new Date().toISOString() });
-      ISP.file.set(percorso, { blob, url: URL.createObjectURL(blob) });
+      const id = await q(sb.rpc(A.registra, { p_sub: r.sub_id, p_commessa: r.commessa, p_percorso: percorso }));
+      if (!A.st.foto.has(k)) A.st.foto.set(k, []);
+      A.st.foto.get(k).push({ id, sub_id: r.sub_id, commessa: r.commessa, percorso, creata_il: new Date().toISOString() });
+      A.st.file.set(percorso, { blob, url: URL.createObjectURL(blob) });
+      if (nuove) nuove.push(id);
       fatte++;
     } catch (e) {
       console.error('foto', e);
-      if (percorso) Promise.resolve(sb.storage.from('ispezione').remove([percorso])).catch(() => {});   // niente file senza riga
+      if (percorso) Promise.resolve(sb.storage.from(A.bucket).remove([percorso])).catch(() => {});   // niente file senza riga
       const msg = String(e && e.message || '');
       if (msg === 'foto-illeggibile') toast('Non riesco a leggere questa foto: riprova a scattarla.');
-      else if (/Troppe foto/.test(msg)) toast('Su questa commessa ci sono già 40 foto: eliminane qualcuna.');
+      else if (/Troppe foto/.test(msg)) toast('Su questa commessa ci sono già ' + A.max + ' foto: eliminane qualcuna.');
       else if (/non aperta/.test(msg)) toast('Questa commessa è già stata riconsegnata: non prende più foto.');
       else await gestisciErrore(e, 'foto');
       return fatte;
@@ -2493,12 +2509,13 @@ async function nuoveFoto(r, scelte) {
 
 // Il file di una foto: si scarica una volta sola per apertura della pagina.
 async function fileFoto(f) {
-  let c = ISP.file.get(f.percorso);
+  const A = archivioFoto();
+  let c = A.st.file.get(f.percorso);
   if (!c) {
-    const { data, error } = await sb.storage.from('ispezione').download(f.percorso);
+    const { data, error } = await sb.storage.from(A.bucket).download(f.percorso);
     if (error || !data) throw error || new Error('foto');
     c = { blob: data, url: URL.createObjectURL(data) };
-    ISP.file.set(f.percorso, c);
+    A.st.file.set(f.percorso, c);
   }
   return c;
 }
@@ -2508,12 +2525,13 @@ async function fileFoto(f) {
    (cartella Download, che il telefono mostra anche nella galleria). Il nome
    del file porta commessa e Sub. */
 async function salvaFotoFuori(r, foto) {
+  const A = archivioFoto();
   try {
     const file = [];
     for (const f of foto) {
       const d = new Date(f.creata_il);
       const nome = ('Commessa ' + r.commessa + ' - ' + nomeSub(r.sub_id) + ' - ' + iso(d) + ' ' + pad(d.getHours()) + '.' + pad(d.getMinutes())
-        + ' (' + ((ISP.foto.get(chiave(r.sub_id, r.commessa)) || []).indexOf(f) + 1) + ').jpg').replace(/[\\/:*?"<>|]/g, ' ');
+        + ' (' + ((A.st.foto.get(chiave(r.sub_id, r.commessa)) || []).indexOf(f) + 1) + ').jpg').replace(/[\\/:*?"<>|]/g, ' ');
       file.push(new File([(await fileFoto(f)).blob], nome, { type: 'image/jpeg' }));
     }
     if (IOS && navigator.canShare && navigator.canShare({ files: file })) {
@@ -2532,8 +2550,9 @@ async function salvaFotoFuori(r, foto) {
 }
 
 function apriGalleria(r, fatto) {
+  const A = archivioFoto();
   const k = chiave(r.sub_id, r.commessa);
-  const elenco = () => ISP.foto.get(k) || [];
+  const elenco = () => A.st.foto.get(k) || [];
   const dove = TELEFONO ? 'sul telefono' : 'sul computer';
   const dentro = h('div', { class: 'galleria' });
   const dopo = () => { fatto(); griglia(); };
@@ -2555,13 +2574,14 @@ function apriGalleria(r, fatto) {
       foto.length
         ? h('div', { class: 'foto-griglia' }, foto.map((x, i) => h('button', { class: 'foto-mini', type: 'button', title: 'Scattata ' + quandoParlato(x.creata_il),
             onclick: () => grande(i) }, immagine(x))))
-        : h('div', { class: 'vuoto' }, h('b', null, 'Ancora nessuna foto'), 'Scatta la prima: resta archiviata su questa commessa.'),
+        : h('div', { class: 'vuoto' }, h('b', null, 'Ancora nessuna foto'), A.scrive ? 'Scatta la prima: resta archiviata su questa commessa.' : ''),
       h('div', { class: 'foto-azioni' },
-        h('button', { class: 'tasto', type: 'button', onclick: () => scatto.click() }, ico('fotocamera'), 'Scatta foto'),
-        h('button', { class: 'tasto chiaro', type: 'button', onclick: () => scegli.click() }, ico('galleria'), TELEFONO ? 'Scegli dal telefono' : 'Scegli un file'),
+        A.scrive ? h('button', { class: 'tasto', type: 'button', onclick: () => scatto.click() }, ico('fotocamera'), 'Scatta foto') : null,
+        A.scrive ? h('button', { class: 'tasto chiaro', type: 'button', onclick: () => scegli.click() }, ico('galleria'), TELEFONO ? 'Scegli dal telefono' : 'Scegli un file') : null,
+        foto.length > 1 ? h('button', { class: 'tasto chiaro', type: 'button', onclick: () => apriSlideshow(r, 0) }, ico('play'), 'Slideshow') : null,
         foto.length ? h('button', { class: 'tasto chiaro', type: 'button', onclick: () => salvaFotoFuori(r, foto) }, ico('installa'),
           (foto.length === 1 ? 'Salva ' : 'Salva tutte ') + dove) : null),
-      h('p', { class: 'nota-piccola' }, 'Le foto restano qui finché la commessa è aperta: quando viene riconsegnata si cancellano da sole. Quelle che ti servono salvale prima '
+      h('p', { class: 'nota-piccola' }, A.spiega + ' Quelle che ti servono salvale prima '
         + dove + (IOS ? ' (nel riquadro che si apre scegli «Salva immagine»).' : '.')));
   }
 
@@ -2573,12 +2593,12 @@ function apriGalleria(r, fatto) {
       if (!confirm('Vuoi eliminare questa foto? Non si può recuperare.')) return;
       elimina.disabled = true;
       try {
-        const { error } = await sb.storage.from('ispezione').remove([x.percorso]);
+        const { error } = await sb.storage.from(A.bucket).remove([x.percorso]);
         if (error) throw error;
-        await q(sb.rpc('elimina_foto_ispezione', { p_id: x.id }));
-        ISP.foto.set(k, elenco().filter(y => y !== x));
-        const c = ISP.file.get(x.percorso);
-        if (c) { URL.revokeObjectURL(c.url); ISP.file.delete(x.percorso); }
+        await q(sb.rpc(A.elimina, { p_id: x.id }));
+        A.st.foto.set(k, elenco().filter(y => y !== x));
+        const c = A.st.file.get(x.percorso);
+        if (c) { URL.revokeObjectURL(c.url); A.st.file.delete(x.percorso); }
         toast('Foto eliminata.');
         dopo();
       } catch (e) { elimina.disabled = false; gestisciErrore(e, 'elimina-foto'); }
@@ -2591,11 +2611,558 @@ function apriGalleria(r, fatto) {
         h('button', { class: 'freccia', type: 'button', 'aria-label': 'Foto dopo', disabled: i === foto.length - 1, onclick: () => grande(i + 1) }, '›')),
       h('div', { class: 'foto-azioni' },
         h('button', { class: 'tasto', type: 'button', onclick: () => salvaFotoFuori(r, [x]) }, ico('installa'), 'Salva ' + dove),
-        elimina,
+        A.scrive ? elimina : null,
         h('button', { class: 'tasto chiaro', type: 'button', onclick: griglia }, ico('galleria'), 'Tutte le foto')));
   }
 
   griglia();
+}
+
+/* ---------------------------------------------------------------------------
+   Qualita' (database\qualita.sql)
+   Chi controlla la qualita' degli articoli gia' assemblati. Come l'Ispettore ha
+   il suo quaderno (note e foto, separate da quelle dell'Ispettore), ma su TUTTI
+   i Sub di assemblaggio (Reborn e Assemblaggio Int. compresi; Zeta Due no). In
+   piu':
+    - la pagina Rientri: le fasi 5 chiuse giorno per giorno (tabella
+      riconsegnato), con le frecce per i giorni prima e la scelta del giorno;
+    - la chat con il Responsabile Qualita' (Simone), Commessa per Commessa, con
+      le foto; Simone la legge e risponde dalla scheda «Qualità» (Admin con
+      profilo.riceve_qualita);
+    - lo slideshow delle foto di una Commessa, sfogliato con le frecce.
+   Le foto restano finche' la Commessa non e' chiusa del tutto alla fase 8: le
+   cancella il PC dell'ufficio (script\note_av_dati.py).
+   --------------------------------------------------------------------------- */
+
+const RESP_QUALITA = 'Simone';        // chi riceve i messaggi di Qualita' (profilo.riceve_qualita)
+
+const QL = {
+  note: new Map(),      // sub|commessa -> { testo, aggiornato_il }
+  foto: new Map(),      // sub|commessa -> [{ id, percorso, creata_il }]
+  msg: new Map(),       // sub|commessa -> [{ id, autore, testo, foto_id, creato_il, letto_il }]
+  file: new Map(),      // percorso -> { blob, url }
+  soloSegnate: false,   // Commesse: filtro «Solo segnate»
+  soloDaLeggere: false, // Simone: filtro «Da leggere»
+  giorno: null,         // Rientri: il giorno mostrato (aaaa-mm-gg); null = oggi
+  nonLetti: 0,          // messaggi dell'altra parte non ancora letti
+};
+
+// Quale archivio di foto si sta usando: quello di Qualita' o quello dell'Ispettore.
+function archivioFoto() {
+  if (S.io === 'qualita' || (S.io === 'admin' && S.vista === 'qualita'))
+    return { bucket: 'qualita', st: QL, registra: 'registra_foto_qualita', elimina: 'elimina_foto_qualita', max: 60, scrive: S.io === 'qualita',
+      spiega: 'Le foto restano finché la commessa non è chiusa del tutto alla fase 8 (confezionamento): poi si cancellano da sole.' };
+  return { bucket: 'ispezione', st: ISP, registra: 'registra_foto_ispezione', elimina: 'elimina_foto_ispezione', max: 40, scrive: S.io === 'ispettore',
+    spiega: 'Le foto restano qui finché la commessa è aperta: quando viene riconsegnata si cancellano da sole.' };
+}
+
+const ioQ = () => S.io === 'qualita' ? 'qualita' : 'resp';
+const altroQ = () => S.io === 'qualita' ? 'resp' : 'qualita';
+const nomeAltroQ = () => S.io === 'qualita' ? RESP_QUALITA : 'Qualità';
+const subQualita = () => S.subs.filter(s => s.regola !== 'taglio').map(s => s.id);
+
+function raggruppa(lista) {
+  const m = new Map();
+  for (const x of lista) {
+    const k = chiave(x.sub_id, x.commessa);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(x);
+  }
+  return m;
+}
+
+async function caricaQualita(ids) {
+  if (!ids.length) { QL.note = new Map(); QL.foto = new Map(); QL.msg = new Map(); return; }
+  const [note, foto, msg] = await Promise.all([
+    S.io === 'qualita' ? q(sb.from('qualita_nota').select('*').in('sub_id', ids)) : Promise.resolve([]),
+    q(sb.from('qualita_foto').select('*').in('sub_id', ids).order('creata_il')),
+    q(sb.from('qualita_msg').select('*').in('sub_id', ids).order('id')),
+  ]);
+  QL.note = new Map(note.map(n => [chiave(n.sub_id, n.commessa), n]));
+  QL.foto = raggruppa(foto);
+  QL.msg = raggruppa(msg);
+  contaNonLettiQ();
+}
+
+const nonLettiQ = k => (QL.msg.get(k) || []).filter(m => m.autore === altroQ() && !m.letto_il).length;
+function contaNonLettiQ() {
+  let n = 0;
+  for (const k of QL.msg.keys()) n += nonLettiQ(k);
+  QL.nonLetti = n;
+  aggiornaContaQualita();
+}
+
+// Solo il numero dei messaggi da leggere (per il numerino sulla scheda).
+async function aggiornaNonLettiQ() {
+  const r = await facoltativo(sb.from('qualita_msg').select('id').eq('autore', altroQ()).is('letto_il', null));
+  QL.nonLetti = r.length;
+  aggiornaContaQualita();
+}
+
+function aggiornaContaQualita() {
+  const c = document.querySelector('.schede .conta-q');
+  if (!c) return;
+  c.textContent = QL.nonLetti > 99 ? '99+' : String(QL.nonLetti);
+  c.classList.toggle('nascosto', !QL.nonLetti);
+  c.setAttribute('aria-label', QL.nonLetti + ' messaggi da leggere');
+}
+
+/* --- Commesse ------------------------------------------------------------ */
+
+async function vistaQCommesse() {
+  const ids = subVisibili();
+  await caricaQualita(ids);
+  let righe = [];
+  if (ids.length) {
+    if (!S.archivio) righe = await q(sb.from('riga').select('*').in('sub_id', ids).gt('aperte', 0));
+    else {
+      // archivio: le Commesse riconsegnate su cui c'e' una nota, una foto o un messaggio
+      const segnate = [...new Set([...QL.note.keys(), ...QL.foto.keys(), ...QL.msg.keys()].map(k => k.split('|').slice(1).join('|')))];
+      righe = segnate.length ? await q(sb.from('riga').select('*').in('sub_id', ids).eq('aperte', 0).in('commessa', segnate)) : [];
+      righe = righe.filter(segnataQ);
+    }
+  }
+  S.righe = righe;
+  disegnaQCommesse();
+}
+
+function segnataQ(r) {
+  const k = chiave(r.sub_id, r.commessa);
+  return QL.note.has(k) || (QL.foto.get(k) || []).length > 0 || (QL.msg.get(k) || []).length > 0;
+}
+
+function disegnaQCommesse() {
+  const ricarica = () => vistaQCommesse().catch(e => gestisciErrore(e, 'qualita'));
+  const k = r => chiave(r.sub_id, r.commessa);
+  const tutte = S.righe;
+  const elenco = (QL.soloSegnate && !S.archivio ? tutte.filter(segnataQ) : tutte)
+    .sort((a, b) => (nonLettiQ(k(b)) > 0) - (nonLettiQ(k(a)) > 0)
+      || String(a.scadenza || '9999').localeCompare(String(b.scadenza || '9999')) || a.commessa.localeCompare(b.commessa));
+  const conFoto = tutte.reduce((t, r) => t + (QL.foto.get(k(r)) || []).length, 0);
+  const frase = S.archivio
+    ? 'Le commesse già riconsegnate dai Sub su cui hai scritto, fotografato o chattato.'
+    : tutte.length + (tutte.length === 1 ? ' commessa in casa' : ' commesse in casa') + ' dai Sub di assemblaggio · ' + pz(tutte.reduce((t, r) => t + r.aperte, 0)) + ' pz'
+      + (conFoto ? ' · ' + conFoto + ' foto' : '') + (QL.nonLetti ? ' · ' + QL.nonLetti + (QL.nonLetti === 1 ? ' messaggio nuovo' : ' messaggi nuovi') : '');
+
+  const voci = elenco.map(r => ({ el: schedaQualita(r, ricarica),
+    get testi() { return [r.commessa, r.modello, r.parte, r.descrizione, r.stagione, nomeSub(r.sub_id), (QL.note.get(k(r)) || {}).testo, numeriBolle(r)]; } }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+
+  const filtri = filtroSub(ricarica);
+  if (filtri && !S.archivio) filtri.append(h('button', { class: 'chip', type: 'button', 'aria-pressed': String(QL.soloSegnate),
+    onclick: () => { QL.soloSegnate = !QL.soloSegnate; disegnaQCommesse(); } }, ico('matita'), 'Solo con note, foto o messaggi'));
+
+  riempi(corpo(),
+    h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
+      h('h2', null, S.archivio ? 'Commesse riconsegnate' : saluto() + '! Le commesse dai Sub'),
+      h('p', null, frase))),
+    filtri,
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
+      : vuoto(S.archivio ? 'Archivio vuoto' : QL.soloSegnate ? 'Ancora niente di segnato' : 'Nessuna commessa in casa',
+          S.archivio ? 'Qui finiscono le commesse riconsegnate su cui hai lavorato.'
+            : QL.soloSegnate ? 'Non hai ancora scritto note, fatto foto o mandato messaggi su queste commesse.'
+            : 'In questo momento questi Sub non hanno commesse in casa.'),
+    h('p', { class: 'piede' }, h('button', { class: 'link', onclick: () => { S.archivio = !S.archivio; window.scrollTo(0, 0); ricarica(); } },
+      S.archivio ? '← Torna alle commesse in casa' : 'Vedi le commesse già riconsegnate')));
+  ricerca.aggiorna();
+}
+
+function schedaQualita(r, ricarica) {
+  const k = chiave(r.sub_id, r.commessa);
+  const nota = QL.note.get(k);
+  const stato = h('div', { class: 'stato-invio' });
+  const mostra = fase => {
+    const n = QL.note.get(k);
+    stato.className = 'stato-invio';
+    if (fase === 'salvo') riempi(stato, 'Salvataggio…');
+    else if (fase === 'errore') { stato.classList.add('da-inviare'); riempi(stato, ico('attenzione'), 'Non salvata: controlla la connessione e ritocca il testo'); }
+    else if (n && n.aggiornato_il) { stato.classList.add('inviata'); riempi(stato, ico('fatto'), 'Salvata ' + quandoParlato(n.aggiornato_il)); }
+    else riempi(stato);
+  };
+  mostra();
+  const idCampo = 'ql-' + k.replace(/[^\w-]/g, '_');
+  const cresci = () => { area.style.height = 'auto'; area.style.height = (area.scrollHeight + 4) + 'px'; };
+  const area = h('textarea', { class: 'nota quaderno', rows: '3', maxlength: '4000', id: idCampo, value: nota ? nota.testo : '',
+    placeholder: 'Le tue note su questa commessa (restano per te)…',
+    oninput: () => { cresci(); salvaNotaQuaderno(r, area.value, mostra, 700); },
+    onblur: () => { if (_attese.has('q|' + k)) salvaNotaQuaderno(r, area.value, mostra, 0); } });
+  if (nota) requestAnimationFrame(cresci);
+
+  const nuovi = nonLettiQ(k);
+  return h('article', { class: 'scheda' + (nuovi ? ' nuova' : '') },
+    h('div', { class: 'capo' },
+      h('div', null, h('span', { class: 'cod' }, r.commessa),
+        h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
+      h('div', { class: 'etichette' },
+        nuovi ? h('span', { class: 'etichetta nuova' }, nuovi === 1 ? 'Messaggio nuovo' : nuovi + ' messaggi nuovi') : null,
+        h('span', { class: 'etichetta del-sub', style: 'background:' + tinta(r.sub_id) }, nomeSub(r.sub_id)))),
+    h('div', { class: 'numeri' },
+      S.archivio ? numero('Riconsegnati', pz(r.chiuse) + ' pz') : numero('In casa dal Sub', pz(r.aperte) + ' pz', true),
+      numero('Commessa', pz(r.lanciata) + ' pz'),
+      numero('Scadenza', fmtData(r.scadenza) || '—')),
+    bolletteInCasa(r),
+    bolletteRiconsegnate(r),
+    h('div', { class: 'quaderno-box' },
+      h('label', { for: idCampo }, ico('matita'), 'Le mie note'), area, stato),
+    tastiQualita(r, ricarica));
+}
+
+/* I tasti di una Commessa: foto, galleria, slideshow, chat. Uguali nelle
+   Commesse e nei Rientri. */
+function tastiQualita(r, ricarica) {
+  const k = chiave(r.sub_id, r.commessa);
+  const scrive = S.io === 'qualita';
+  const nFoto = () => (QL.foto.get(k) || []).length;
+  const tGalleria = h('button', { class: 'tasto chiaro', type: 'button', onclick: () => apriGalleria(r, conta) });
+  const tSlide = h('button', { class: 'tasto chiaro', type: 'button', onclick: () => apriSlideshow(r, 0) });
+  const tChat = h('button', { class: 'tasto chiaro', type: 'button', onclick: () => apriChatQualita(r, () => { conta(); if (ricarica) ricarica(); }) });
+  function conta() {
+    const n = nFoto(), m = (QL.msg.get(k) || []).length, nl = nonLettiQ(k);
+    riempi(tGalleria, ico('galleria'), n ? 'Galleria (' + n + ')' : 'Galleria');
+    riempi(tSlide, ico('play'), 'Slideshow');
+    tSlide.disabled = !n;
+    tSlide.setAttribute('aria-label', 'Slideshow delle ' + n + ' foto della commessa ' + r.commessa);
+    riempi(tChat, ico('note'), (scrive ? 'Scrivi a ' + RESP_QUALITA : 'Rispondi') + (m ? ' (' + m + ')' : ''));
+    tGalleria.classList.toggle('con-foto', n > 0);
+    tChat.classList.toggle('con-foto', nl > 0);
+  }
+  conta();
+  if (!scrive) return h('div', { class: 'foto-riga tre' }, tSlide, tGalleria, tChat);
+  const scatto = campoFoto(r, true, conta);
+  return h('div', { class: 'foto-riga quattro' }, scatto,
+    h('button', { class: 'tasto', type: 'button', 'aria-label': 'Scatta una foto per la commessa ' + r.commessa, onclick: () => scatto.click() },
+      ico('fotocamera'), 'Scatta foto'),
+    tSlide, tGalleria, tChat);
+}
+
+/* --- Rientri: le fasi 5 chiuse in un giorno ---------------------------------- */
+
+const NOMI_GIORNO = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+function giornoParlato(g) {
+  if (g === oggiIso()) return 'oggi';
+  if (g === iso(aggiungiGiorni(new Date(), -1))) return 'ieri';
+  return NOMI_GIORNO[daIso(g).getDay()] + ' ' + fmtData(g);
+}
+
+// Somma il Riconsegnato (fonti 'foto' e 'stima') per Sub e Commessa.
+function sommaRientri(ric) {
+  const per = new Map();
+  for (const x of ric) {
+    const k = chiave(x.sub_id, x.commessa) + '|' + x.giorno;
+    const p = per.get(k) || { sub_id: x.sub_id, commessa: x.commessa, giorno: x.giorno, modello: x.modello, parte: x.parte, descrizione: x.descrizione, pezzi: 0 };
+    p.pezzi += x.pezzi || 0;
+    per.set(k, p);
+  }
+  return [...per.values()].filter(p => p.pezzi > 0);
+}
+
+async function vistaQRientri() {
+  const giorno = QL.giorno && QL.giorno < oggiIso() ? QL.giorno : oggiIso();
+  const ids = subQualita();
+  const ric = ids.length ? await q(sb.from('riconsegnato').select('*').in('sub_id', ids).eq('giorno', giorno)) : [];
+  await caricaQualita(ids);
+  const voci = sommaRientri(ric);
+  const com = [...new Set(voci.map(v => v.commessa))];
+  const righe = com.length ? await q(sb.from('riga').select('*').in('sub_id', ids).in('commessa', com)) : [];
+  const idx = new Map(righe.map(r => [chiave(r.sub_id, r.commessa), r]));
+  S.righe = voci.map(v => Object.assign({ lanciata: 0, aperte: 0, bolle: [], riconsegnate: [] },
+    idx.get(chiave(v.sub_id, v.commessa)) || { sub_id: v.sub_id, commessa: v.commessa, modello: v.modello, parte: v.parte, descrizione: v.descrizione },
+    { rientrati: v.pezzi }));
+  disegnaQRientri(giorno);
+}
+
+function disegnaQRientri(giorno) {
+  const ricarica = () => vistaQRientri().catch(e => gestisciErrore(e, 'rientri'));
+  const vaiA = g => { QL.giorno = g >= oggiIso() ? null : g; window.scrollTo(0, 0); ricarica(); };
+  const oggi = giorno === oggiIso();
+  const elenco = S.righe.slice().sort((a, b) => nomeSub(a.sub_id).localeCompare(nomeSub(b.sub_id)) || b.rientrati - a.rientrati);
+  const tot = elenco.reduce((t, r) => t + r.rientrati, 0);
+  const perSub = new Map();
+  for (const r of elenco) perSub.set(r.sub_id, (perSub.get(r.sub_id) || 0) + r.rientrati);
+
+  const scegli = h('input', { type: 'date', class: 'giorno-scelta', value: giorno, max: oggiIso(), 'aria-label': 'Scegli il giorno',
+    onchange: () => { if (scegli.value) vaiA(scegli.value); } });
+  const nav = h('div', { class: 'settimana giorni' },
+    h('button', { class: 'freccia', type: 'button', 'aria-label': 'Giorno prima', title: 'Giorno prima', onclick: () => vaiA(iso(aggiungiGiorni(daIso(giorno), -1))) }, '‹'),
+    h('label', { class: 'giorno-box' }, ico('calendario'), scegli),
+    h('button', { class: 'freccia', type: 'button', 'aria-label': 'Giorno dopo', title: 'Giorno dopo', disabled: oggi, onclick: () => vaiA(iso(aggiungiGiorni(daIso(giorno), 1))) }, '›'),
+    oggi ? null : h('button', { class: 'tasto piccolo chiaro', type: 'button', onclick: () => vaiA(oggiIso()) }, 'Oggi'));
+
+  const voci = elenco.map(r => ({ el: schedaRientro(r, ricarica),
+    testi: [r.commessa, r.modello, r.parte, r.descrizione, r.stagione, nomeSub(r.sub_id), numeriBolle(r)] }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+
+  // «Quando e' rientrata?»: una Commessa cercata in tutti i giorni
+  const cercaCom = h('input', { type: 'search', placeholder: 'Numero di commessa', 'aria-label': 'Numero di commessa da cercare in tutti i giorni',
+    autocomplete: 'off', autocorrect: 'off', autocapitalize: 'characters', spellcheck: 'false', enterkeyhint: 'search' });
+  const quando = h('form', { class: 'quando-rientrata', onsubmit: ev => { ev.preventDefault(); cercaRientri(cercaCom.value, vaiA); } },
+    h('label', null, ico('storico'), 'Quando è rientrata una commessa?'),
+    h('div', null, cercaCom, h('button', { class: 'tasto piccolo', type: 'submit' }, ico('lente'), 'Cerca')));
+
+  riempi(corpo(),
+    h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
+      h('h2', null, 'Rientrati ' + giornoParlato(giorno)),
+      h('p', null, elenco.length
+        ? elenco.length + (elenco.length === 1 ? ' commessa' : ' commesse') + ' · ' + pz(tot) + ' pz chiusi all’assemblaggio (fase 5)'
+        : 'Nessuna fase 5 chiusa in questo giorno.'))),
+    nav,
+    perSub.size > 1 ? h('div', { class: 'filtri rientri-sub' }, [...perSub].map(([id, n]) =>
+      h('span', { class: 'chip' }, h('span', { class: 'pallino-sub', style: 'background:' + tinta(id) }), nomeSub(id) + ' · ' + pz(n) + ' pz'))) : null,
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
+      : vuoto(oggi ? 'Ancora niente oggi' : 'Niente in questo giorno',
+          oggi ? 'Le fasi 5 chiuse oggi in GEA compaiono qui con gli scarichi, circa ogni 2 ore.' : 'Usa la freccia ‹ per tornare ai giorni prima, o scegli un altro giorno.'),
+    quando,
+    h('p', { class: 'nota-piccola' }, 'Contano le fasi 5 (assemblaggio) chiuse in GEA, senza riparazioni, di tutti i Sub di assemblaggio e di Assemblaggio Int. ' + testoAggiornato() + '.'));
+  ricerca.aggiorna();
+}
+
+function schedaRientro(r, ricarica) {
+  const k = chiave(r.sub_id, r.commessa);
+  const nuovi = nonLettiQ(k);
+  return h('article', { class: 'scheda' + (nuovi ? ' nuova' : '') },
+    h('div', { class: 'capo' },
+      h('div', null, h('span', { class: 'cod' }, r.commessa),
+        h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
+      h('div', { class: 'etichette' },
+        nuovi ? h('span', { class: 'etichetta nuova' }, nuovi === 1 ? 'Messaggio nuovo' : nuovi + ' messaggi nuovi') : null,
+        h('span', { class: 'etichetta del-sub', style: 'background:' + tinta(r.sub_id) }, nomeSub(r.sub_id)))),
+    h('div', { class: 'numeri' },
+      numero('Rientrati', pz(r.rientrati) + ' pz', true),
+      numero('Ancora dal Sub', pz(r.aperte) + ' pz'),
+      numero('Commessa', r.lanciata ? pz(r.lanciata) + ' pz' : '—')),
+    tastiQualita(r, ricarica));
+}
+
+async function cercaRientri(testo, vaiA) {
+  const t = String(testo || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  if (t.length < 3) return toast('Scrivi almeno 3 caratteri del numero di commessa.');
+  try {
+    const ids = subQualita();
+    const ric = ids.length ? await q(sb.from('riconsegnato').select('*').in('sub_id', ids).ilike('commessa', '%' + t + '%')
+      .order('giorno', { ascending: false }).limit(1000)) : [];
+    const voci = sommaRientri(ric).sort((a, b) => b.giorno.localeCompare(a.giorno) || a.commessa.localeCompare(b.commessa));
+    let f;
+    f = finestra(h('h3', null, 'Quando è rientrata «' + t + '»'),
+      voci.length
+        ? h('ul', { class: 'lista-rientri' }, voci.slice(0, 200).map(v => h('li', null,
+            h('button', { class: 'riga-rientro', type: 'button', onclick: () => { f.chiudi(); vaiA(v.giorno); } },
+              h('b', { class: 'quando-giorno' }, giornoParlato(v.giorno)),
+              h('span', null, h('span', { class: 'cod' }, v.commessa), ' · ' + nomeSub(v.sub_id)),
+              h('b', null, pz(v.pezzi) + ' pz')))))
+        : h('p', { class: 'vuoto', style: 'margin:14px 0' }, 'Nessun rientro trovato per questa commessa.'),
+      h('p', { class: 'nota-piccola' }, 'Tocca un giorno per vedere tutti i rientri di quel giorno.'),
+      h('button', { class: 'tasto pieno chiaro', onclick: () => f.chiudi() }, 'Chiudi'));
+  } catch (e) { gestisciErrore(e, 'cerca-rientri'); }
+}
+
+/* --- Chat Qualita' <-> Responsabile Qualita' -------------------------------- */
+
+async function apriChatQualita(r, dopo) {
+  const k = chiave(r.sub_id, r.commessa);
+  const io = ioQ();
+  const lista = h('div', { class: 'chat', 'aria-live': 'polite' });
+  const testo = h('textarea', { class: 'nota chat-testo', rows: '2', maxlength: '4000', 'aria-label': 'Messaggio per ' + nomeAltroQ(),
+    placeholder: 'Scrivi a ' + nomeAltroQ() + '…',
+    onkeydown: ev => { if (ev.key === 'Enter' && !ev.shiftKey && !TELEFONO) { ev.preventDefault(); manda(); } } });
+  const invia = h('button', { class: 'tasto', type: 'button', onclick: () => manda() }, ico('invia'), 'Invia');
+  // Qualita' puo' mandare foto: si caricano nella galleria della Commessa e partono con il messaggio
+  const campo = h('input', { type: 'file', accept: 'image/*', class: 'nascosto', multiple: true, tabindex: '-1', 'aria-hidden': 'true',
+    onchange: () => { const scelte = [...campo.files]; campo.value = ''; mandaFoto(scelte); } });
+  const scatto = h('input', { type: 'file', accept: 'image/*', capture: 'environment', class: 'nascosto', tabindex: '-1', 'aria-hidden': 'true',
+    onchange: () => { const scelte = [...scatto.files]; scatto.value = ''; mandaFoto(scelte); } });
+  const tastiFoto = io === 'qualita' ? [campo, scatto,
+    h('button', { class: 'tasto chiaro', type: 'button', 'aria-label': 'Scatta e manda una foto', onclick: () => scatto.click() }, ico('fotocamera'), 'Foto'),
+    h('button', { class: 'tasto chiaro', type: 'button', 'aria-label': 'Manda foto già fatte', onclick: () => campo.click() }, ico('galleria'), TELEFONO ? 'Dal telefono' : 'Da file')] : null;
+
+  const f = finestra(h('h3', null, (io === 'qualita' ? 'Chat con ' + RESP_QUALITA : 'Qualità') + ' · ' + r.commessa),
+    h('p', { class: 'tenue', style: 'margin:0 0 12px' }, [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · ')),
+    lista,
+    h('div', { class: 'chat-scrivi' }, testo, h('div', { class: 'chat-tasti' }, tastiFoto, invia)));
+  f.box.classList.add('larga', 'con-chat');
+  let timer;
+  f.allaChiusura = () => { clearInterval(timer); if (dopo) dopo(); };
+
+  let segui = true;            // la chat sta in fondo: anche le foto che arrivano dopo la tengono li'
+  lista.addEventListener('scroll', () => { segui = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 40; });
+  const inFondo = () => { if (segui) lista.scrollTop = lista.scrollHeight; };
+  const immagine = x => {
+    const img = h('img', { alt: 'Foto della commessa ' + r.commessa, onload: inFondo });
+    fileFoto(x).then(c => { img.src = c.url; }, () => { img.replaceWith(h('span', { class: 'foto-persa' }, 'Foto non disponibile')); });
+    return img;
+  };
+  function disegnaChat() {
+    const ms = QL.msg.get(k) || [];
+    const foto = QL.foto.get(k) || [];
+    riempi(lista, ms.length ? ms.map(m => {
+      const x = m.foto_id ? foto.find(y => y.id === m.foto_id) : null;
+      return h('div', { class: 'msg ' + (m.autore === io ? 'mio' : 'suo') },
+        h('div', { class: 'quando' }, (m.autore === io ? 'Tu' : m.autore === 'qualita' ? 'Qualità' : RESP_QUALITA) + ' · ' + quandoParlato(m.creato_il)
+          + (m.autore === io && m.letto_il ? ' · letto' : '')),
+        x ? h('button', { class: 'msg-foto', type: 'button', 'aria-label': 'Apri la foto nello slideshow', onclick: () => apriSlideshow(r, foto.indexOf(x)) }, immagine(x))
+          : !m.testo ? h('span', { class: 'foto-persa' }, 'Foto non più disponibile') : null,
+        m.testo ? h('div', { class: 'testo-nota' }, m.testo) : null);
+    }) : h('div', { class: 'vuoto' }, h('b', null, 'Ancora nessun messaggio'),
+      io === 'qualita' ? 'Scrivi a ' + RESP_QUALITA + ' cosa hai visto su questa commessa: puoi mandare anche le foto.' : 'Qui compaiono i messaggi di Qualità su questa commessa.'));
+    inFondo();
+  }
+  async function segnaLetti() {
+    if (!nonLettiQ(k)) return;
+    try {
+      await q(sb.rpc('segna_letti_qualita', { p_sub: r.sub_id, p_commessa: r.commessa }));
+      const ora = new Date().toISOString();
+      for (const m of QL.msg.get(k) || []) if (m.autore === altroQ() && !m.letto_il) m.letto_il = ora;
+      contaNonLettiQ();
+    } catch (e) { console.warn('segna letti', e); }
+  }
+  async function ricarica() {
+    const [ms, foto] = await Promise.all([
+      q(sb.from('qualita_msg').select('*').eq('sub_id', r.sub_id).eq('commessa', r.commessa).order('id')),
+      q(sb.from('qualita_foto').select('*').eq('sub_id', r.sub_id).eq('commessa', r.commessa).order('creata_il')),
+    ]);
+    QL.msg.set(k, ms); QL.foto.set(k, foto);
+    disegnaChat();
+    await segnaLetti();
+  }
+  async function manda(fotoId, testoFoto) {
+    const t = fotoId ? (testoFoto || '') : testo.value.trim();
+    if (!t && !fotoId) return;
+    invia.disabled = true;
+    try {
+      const id = await q(sb.rpc('manda_msg_qualita', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: t || null, p_foto: fotoId || null }));
+      if (!QL.msg.has(k)) QL.msg.set(k, []);
+      QL.msg.get(k).push({ id, sub_id: r.sub_id, commessa: r.commessa, autore: io, testo: t || null, foto_id: fotoId || null, creato_il: new Date().toISOString(), letto_il: null });
+      if (!fotoId) { testo.value = ''; }
+      segui = true;
+      disegnaChat();
+    } catch (e) { gestisciErrore(e, 'chat'); }
+    invia.disabled = false;
+  }
+  async function mandaFoto(scelte) {
+    if (!scelte.length) return;
+    const nuove = [];
+    await nuoveFoto(r, scelte, nuove);
+    const t = testo.value.trim();                // il testo gia' scritto parte con la prima foto
+    for (let i = 0; i < nuove.length; i++) await manda(nuove[i], i === 0 ? t : '');
+    if (nuove.length && t) testo.value = '';
+  }
+
+  disegnaChat();
+  ricarica().catch(e => gestisciErrore(e, 'chat'));
+  timer = setInterval(() => { if (!document.hidden) ricarica().catch(() => {}); }, 20000);     // le risposte arrivano anche a chat aperta
+  if (!TELEFONO) testo.focus();
+}
+
+/* --- Slideshow: le foto di una Commessa, una alla volta ----------------------
+   Si sfoglia con le frecce ‹ ›, con i tasti freccia (computer) o facendo
+   scorrere il dito (tablet). Non va avanti da solo. */
+function apriSlideshow(r, inizio) {
+  const A = archivioFoto();
+  const foto = (A.st.foto.get(chiave(r.sub_id, r.commessa)) || []).slice();
+  if (!foto.length) return toast('Su questa commessa non ci sono ancora foto.');
+  let i = Math.min(Math.max(inizio || 0, 0), foto.length - 1);
+  const img = h('img', { alt: '' });
+  const conta = h('span', { class: 'slide-conta' });
+  const dida = h('p', { class: 'slide-dida' });
+  const prima = h('button', { class: 'slide-freccia sx', type: 'button', 'aria-label': 'Foto prima', onclick: ev => { ev.stopPropagation(); vai(-1); } }, '‹');
+  const dopo = h('button', { class: 'slide-freccia dx', type: 'button', 'aria-label': 'Foto dopo', onclick: ev => { ev.stopPropagation(); vai(1); } }, '›');
+  const palco = h('div', { class: 'slide-palco' }, img);
+  const el = h('div', { class: 'slide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Foto della commessa ' + r.commessa },
+    h('div', { class: 'slide-testa' },
+      h('div', null, h('b', null, 'Commessa ' + r.commessa), h('span', null, [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' ')].filter(Boolean).join(' · '))),
+      conta,
+      h('button', { class: 'slide-chiudi', type: 'button', 'aria-label': 'Chiudi lo slideshow', onclick: () => chiudi() }, '×')),
+    h('div', { class: 'slide-centro' }, prima, palco, dopo),
+    dida);
+  const tasti = ev => {
+    if (ev.key === 'ArrowLeft') vai(-1);
+    else if (ev.key === 'ArrowRight') vai(1);
+    else if (ev.key === 'Escape') chiudi();
+    else return;
+    ev.preventDefault(); ev.stopImmediatePropagation();      // la finestra sotto non deve chiudersi
+  };
+  let x0 = null;
+  palco.addEventListener('pointerdown', ev => { x0 = ev.clientX; });
+  palco.addEventListener('pointerup', ev => { if (x0 != null && Math.abs(ev.clientX - x0) > 50) vai(ev.clientX < x0 ? 1 : -1); x0 = null; });
+  palco.addEventListener('pointercancel', () => { x0 = null; });
+  function chiudi() { el.remove(); window.removeEventListener('keydown', tasti, true); }
+  function mostra() {
+    const x = foto[i];
+    img.removeAttribute('src');
+    img.alt = 'Foto ' + (i + 1) + ' di ' + foto.length + ' della commessa ' + r.commessa;
+    fileFoto(x).then(c => { if (foto[i] === x) img.src = c.url; }, () => { if (foto[i] === x) dida.textContent = 'Foto non disponibile'; });
+    conta.textContent = (i + 1) + ' di ' + foto.length;
+    dida.textContent = 'Scattata ' + quandoParlato(x.creata_il);
+    prima.disabled = i === 0;
+    dopo.disabled = i === foto.length - 1;
+    for (const j of [i - 1, i + 1]) if (foto[j]) fileFoto(foto[j]).catch(() => {});     // la prossima e' gia' pronta
+  }
+  function vai(d) { const j = i + d; if (j < 0 || j >= foto.length) return; i = j; mostra(); }
+  window.addEventListener('keydown', tasti, true);
+  document.body.append(el);
+  mostra();
+  dopo.focus();
+}
+
+/* --- Scheda «Qualità» del Responsabile (Simone) ------------------------------ */
+
+async function vistaQualitaResp() {
+  const ids = subQualita();
+  await caricaQualita(ids);
+  const chiavi = [...new Set([...QL.msg.keys(), ...QL.foto.keys()])];
+  const com = [...new Set(chiavi.map(k => k.split('|').slice(1).join('|')))];
+  const righe = com.length ? await q(sb.from('riga').select('*').in('sub_id', ids).in('commessa', com)) : [];
+  const idx = new Map(righe.map(r => [chiave(r.sub_id, r.commessa), r]));
+  S.righe = chiavi.map(k => idx.get(k) || { sub_id: k.split('|')[0], commessa: k.split('|').slice(1).join('|'), aperte: 0, lanciata: 0 });
+  disegnaQualitaResp();
+}
+
+function disegnaQualitaResp() {
+  const ricarica = () => vistaQualitaResp().catch(e => gestisciErrore(e, 'qualita'));
+  const k = r => chiave(r.sub_id, r.commessa);
+  const ultimo = r => { const ms = QL.msg.get(k(r)) || []; return ms[ms.length - 1] || null; };
+  const quando = r => { const u = ultimo(r); const f = (QL.foto.get(k(r)) || []).slice(-1)[0]; return [u && u.creato_il, f && f.creata_il].filter(Boolean).sort().pop() || ''; };
+  const tutte = S.righe.slice().sort((a, b) => (nonLettiQ(k(b)) > 0) - (nonLettiQ(k(a)) > 0) || quando(b).localeCompare(quando(a)));
+  const elenco = QL.soloDaLeggere ? tutte.filter(r => nonLettiQ(k(r))) : tutte;
+
+  const voci = elenco.map(r => {
+    const u = ultimo(r), nl = nonLettiQ(k(r)), nf = (QL.foto.get(k(r)) || []).length;
+    const el = h('article', { class: 'scheda' + (nl ? ' nuova' : '') },
+      h('div', { class: 'capo' },
+        h('div', null, h('span', { class: 'cod' }, r.commessa),
+          h('p', { class: 'cosa' }, [[r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · '))),
+        h('div', { class: 'etichette' },
+          nl ? h('span', { class: 'etichetta nuova' }, nl === 1 ? 'Da leggere' : nl + ' da leggere') : null,
+          h('span', { class: 'etichetta del-sub', style: 'background:' + tinta(r.sub_id) }, nomeSub(r.sub_id)))),
+      h('div', { class: 'numeri' },
+        numero('In casa dal Sub', pz(r.aperte) + ' pz', r.aperte > 0),
+        numero('Commessa', r.lanciata ? pz(r.lanciata) + ' pz' : '—'),
+        numero('Foto', String(nf))),
+      u ? h('div', { class: 'msg-anteprima ' + (u.autore === 'resp' ? 'mio' : 'suo') },
+        h('div', { class: 'quando' }, (u.autore === 'resp' ? 'Tu' : 'Qualità') + ' · ' + quandoParlato(u.creato_il)),
+        h('div', { class: 'testo-nota' }, u.testo || (u.foto_id ? '📷 Foto' : 'Foto non più disponibile'))) : null,
+      tastiQualita(r, ricarica));
+    return { el, testi: [r.commessa, r.modello, r.parte, r.descrizione, nomeSub(r.sub_id), ...(QL.msg.get(k(r)) || []).map(m => m.testo)] };
+  });
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+  const filtri = h('div', { class: 'filtri' },
+    h('button', { class: 'chip', type: 'button', 'aria-pressed': String(!QL.soloDaLeggere), onclick: () => { QL.soloDaLeggere = false; disegnaQualitaResp(); } }, 'Tutte'),
+    h('button', { class: 'chip', type: 'button', 'aria-pressed': String(QL.soloDaLeggere), onclick: () => { QL.soloDaLeggere = true; disegnaQualitaResp(); } },
+      QL.nonLetti ? h('span', { class: 'pallino' }) : null, 'Da leggere'));
+
+  riempi(corpo(),
+    h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
+      h('h2', null, 'Qualità'),
+      h('p', null, tutte.length
+        ? tutte.length + (tutte.length === 1 ? ' commessa' : ' commesse') + ' con messaggi o foto di Qualità'
+          + (QL.nonLetti ? ' · ' + QL.nonLetti + (QL.nonLetti === 1 ? ' messaggio da leggere' : ' messaggi da leggere') : '')
+        : 'Qui arrivano i messaggi e le foto di Qualità, commessa per commessa.'))),
+    tutte.length ? [filtri, ricerca.casella, ricerca.trovate,
+      elenco.length ? schede : vuoto('Tutto letto', 'Non ci sono messaggi nuovi di Qualità.'), ricerca.niente]
+      : vuoto('Ancora nessun messaggio', 'Quando Qualità ti scrive su una commessa la trovi qui, con le foto.'));
+  ricerca.aggiorna();
 }
 
 /* ---------------------------------------------------------------------------
@@ -2921,7 +3488,8 @@ function aggiornaInviti() {
   } else if (st === 'da-chiedere' && !invitoChiuso('notifiche')) {
     pezzi.push(h('div', { class: 'banner' }, ico('campanella'),
       h('span', null, S.io === 'admin' ? 'Vuoi un avviso quando un Sub risponde?'
-        : S.io === 'cuciture' ? 'Vuoi un avviso, anche a pagina chiusa, quando arrivano articoli nuovi da stampare?' : 'Vuoi che il telefono ti avvisi quando l’ufficio ti scrive?'),
+        : S.io === 'cuciture' ? 'Vuoi un avviso, anche a pagina chiusa, quando arrivano articoli nuovi da stampare?'
+        : S.io === 'qualita' ? 'Vuoi un avviso quando ' + RESP_QUALITA + ' ti risponde?' : 'Vuoi che il telefono ti avvisi quando l’ufficio ti scrive?'),
       h('button', { class: 'tasto piccolo', onclick: chiediNotifiche }, 'Sì, avvisami'),
       h('button', { class: 'link', onclick: () => chiudiInvito('notifiche') }, 'Più tardi')));
   }
@@ -2934,7 +3502,7 @@ function aggiornaInviti() {
    --------------------------------------------------------------------------- */
 
 function statoNotifiche() {
-  if (S.io === 'ispettore') return 'non-supportate';     // il quaderno non riceve messaggi: niente avvisi (le Cuciture si': «Lancio nuovo»)
+  if (S.io === 'ispettore') return 'non-supportate';     // il quaderno non riceve messaggi: niente avvisi (le Cuciture si': «Lancio nuovo»; Qualita': le risposte)
   const ok = CFG.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   if (!ok) return IOS && !standalone() ? 'ios-home' : 'non-supportate';
   if (Notification.permission === 'granted') return 'attive';
@@ -2994,9 +3562,17 @@ async function controlloPeriodico() {
     if (scrivendo || _attese.size || document.querySelector('.velo')) return;
     // numeri nuovi dal PC (Carico, Aperte, Chiuse): anche Sub e commesse nuove
     if (cambiati) { try { S.subs = await q(sb.from('sub').select('*').order('ordine').order('nome')); } catch (e) { /* al giro dopo */ } }
+    if (S.respQualita && S.vista !== 'qualita') aggiornaNonLettiQ();     // il numerino sulla scheda «Qualità»
     if (S.vista === 'bacheca') return vistaBacheca();
     if (S.vista === 'sparo') return vistaSparo();
     if (S.vista === 'quaderno') return cambiati ? vistaQuaderno() : undefined;
+    if (S.io === 'qualita' || S.vista === 'qualita') {
+      const prima = QL.nonLetti;
+      await aggiornaNonLettiQ();
+      const ql = { qcommesse: vistaQCommesse, qrientri: vistaQRientri, qualita: vistaQualitaResp }[S.vista];
+      if (ql) return (cambiati || QL.nonLetti !== prima) ? ql() : undefined;
+      if (S.io === 'qualita') return;
+    }
     if (cambiati && S.vista === 'cucstorico' && S.io === 'cuciture')      // anche dallo Storico: avviso se arriva un lancio
       avvisoNuoviCuciture(await q(sb.from('cuciture_riga').select('id,modello,parte,colore,qta,commesse,creata_il,gia_stampata_il').eq('stato', 'da_stampare')));
     if (S.vista === 'cuciture' || S.vista === 'cucstorico') return cambiati ? vistaCuciture() : undefined;

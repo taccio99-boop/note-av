@@ -738,3 +738,26 @@ body.rosa .testata .schede button[aria-selected="true"] { background: var(--bg);
   .slide-freccia { position: absolute; top: 50%; transform: translateY(-50%); width: 52px; height: 72px; z-index: 1; background: rgba(0, 0, 0, .45); }
   .slide-freccia.sx { left: 6px; } .slide-freccia.dx { right: 6px; }
 }
+
+/* Qualita' X Art.: un blocco per Articolo, con la foto accanto al codice */
+.scheda .capo.art-capo { justify-content: flex-start; align-items: center; gap: 14px; }
+.art-foto { width: 96px; height: 96px; flex: none; border-radius: 14px; background: #fff; border: 1px solid var(--line); display: grid; place-items: center; overflow: hidden; }
+.art-foto img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.art-foto img:not([src]) { visibility: hidden; }
+.art-foto span { font-size: 12px; color: var(--ink-3); text-align: center; padding: 4px; }
+.art-nome { min-width: 0; display: grid; gap: 4px; }
+.art-nome .cod { font-size: 18px; font-weight: 700; word-break: break-word; }
+.art-nome .cosa { margin: 0; color: var(--ink-2); font-size: 15px; }
+.art-nome .etichette { justify-content: flex-start; }
+@media (min-width: 1100px) { .art-foto { width: 120px; height: 120px; } }
+.art-commesse { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.art-commesse li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
+.art-commesse li .cod { font-size: 14px; }
+.art-commesse-tutte summary { cursor: pointer; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+.scheda .piedino { display: flex; flex-wrap: wrap; gap: 8px; }
+.scheda .piedino .diba { min-height: 40px; font-size: 15px; padding: 6px 14px; }
+.quaderno-box.per-simone { background: var(--verde-2); border-color: color-mix(in srgb, var(--verde) 35%, transparent); }
+.quaderno-box.per-simone label svg { color: var(--verde); }
+.sezioni-q { display: inline-flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface-2); margin: 0 0 12px; }
+.sezioni-q button { border: 0; background: transparent; color: var(--ink-2); font-weight: 600; font-size: 16px; padding: 8px 18px; border-radius: 10px; }
+.sezioni-q button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--ombra); }

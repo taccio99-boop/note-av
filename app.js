@@ -46,9 +46,9 @@ const NOMI_VISTA = {
   sub: { righe: 'Note', carico: 'Lavoro', consegne: 'Consegne' },
   ispettore: { quaderno: 'Quaderno' },
   cuciture: { cuciture: 'Da stampare', cucstorico: 'Storico' },
-  qualita: { qcommesse: 'Commesse', qrientri: 'Rientri' },
+  qualita: { qcommesse: 'Commesse', qart: 'Qualità X Art.', qrientri: 'Rientri' },
 };
-const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno', cuciture: 'documento', cucstorico: 'storico', qualita: 'qualita', qcommesse: 'quaderno', qrientri: 'furgone' };
+const ICONE_VISTA = { bacheca: 'bacheca', righe: 'note', carico: 'pacco', consegne: 'furgone', rientri: 'robot', accessi: 'chiave', quaderno: 'quaderno', cuciture: 'documento', cucstorico: 'storico', qualita: 'qualita', qcommesse: 'quaderno', qart: 'qualita', qrientri: 'furgone' };
 const COLONNE = [
   ['da_controllare', 'Da controllare'],
   ['in_attesa', 'In attesa di risposta'],
@@ -646,7 +646,7 @@ function testoAggiornato() {
 function disegna() {
   const sub = S.io === 'sub';
   const viste = sub ? ['righe', 'carico', 'consegne'] : S.io === 'ispettore' ? ['quaderno'] : S.io === 'cuciture' ? ['cuciture', 'cucstorico']
-    : S.io === 'qualita' ? ['qcommesse', 'qrientri']
+    : S.io === 'qualita' ? ['qcommesse', 'qart', 'qrientri']
     : ['bacheca', 'righe', 'carico', 'consegne', 'rientri'].concat(S.respQualita ? ['qualita'] : [], ['accessi']);
   const titolo = sub ? nomeSub(S.chi.sub_id) : S.io === 'ispettore' ? 'Note Av · Ispettore' : S.io === 'cuciture' ? 'Note Av · Cuciture' : S.io === 'qualita' ? 'Note Av · Qualità' : 'Note Av';
   document.body.classList.toggle('rosa', S.io === 'cuciture');       // la pagina delle Cuciture e' rosa
@@ -670,7 +670,7 @@ function disegna() {
   aggiornaContaQualita();
   aggiornaInviti();
   ({ bacheca: vistaBacheca, righe: vistaRighe, carico: vistaCarico, consegne: vistaConsegne, accessi: vistaAccessi, sparo: vistaSparo, quaderno: vistaQuaderno, cuciture: vistaCuciture, cucstorico: vistaCuciture,
-     qcommesse: vistaQCommesse, qrientri: vistaQRientri, qualita: vistaQualitaResp })[S.vista]()
+     qcommesse: vistaQCommesse, qart: vistaQArt, qrientri: vistaQRientri, qualita: vistaQualitaResp })[S.vista]()
     .catch(e => gestisciErrore(e, S.vista));
 }
 
@@ -2469,13 +2469,13 @@ async function preparaFoto(file, r) {
     x.fillStyle = '#2d2620'; x.fillRect(0, a, w, fascia);
     x.fillStyle = '#ffffff'; x.textBaseline = 'middle';
     x.font = '600 ' + Math.round(fascia * 0.52) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-    x.fillText('Commessa ' + r.commessa + ' · ' + nomeSub(r.sub_id) + ' · ' + fmtQuando(new Date().toISOString()), Math.round(fascia * 0.4), a + fascia / 2, w - Math.round(fascia * 0.8));
+    x.fillText((r.fascia || 'Commessa ' + r.commessa + ' · ' + nomeSub(r.sub_id)) + ' · ' + fmtQuando(new Date().toISOString()), Math.round(fascia * 0.4), a + fascia / 2, w - Math.round(fascia * 0.8));
     return await new Promise((ok, ko) => c.toBlob(b => b ? ok(b) : ko(new Error('foto-illeggibile')), 'image/jpeg', 0.82));
   } finally { URL.revokeObjectURL(url); }
 }
 
 async function nuoveFoto(r, scelte, nuove) {
-  const A = archivioFoto();
+  const A = archivioFoto(r);
   const k = chiave(r.sub_id, r.commessa);
   let fatte = 0;
   for (const file of scelte) {
@@ -2509,7 +2509,7 @@ async function nuoveFoto(r, scelte, nuove) {
 
 // Il file di una foto: si scarica una volta sola per apertura della pagina.
 async function fileFoto(f) {
-  const A = archivioFoto();
+  const A = archivioFoto(f.art_id != null ? { sub_id: 'art' } : null);
   let c = A.st.file.get(f.percorso);
   if (!c) {
     const { data, error } = await sb.storage.from(A.bucket).download(f.percorso);
@@ -2525,12 +2525,12 @@ async function fileFoto(f) {
    (cartella Download, che il telefono mostra anche nella galleria). Il nome
    del file porta commessa e Sub. */
 async function salvaFotoFuori(r, foto) {
-  const A = archivioFoto();
+  const A = archivioFoto(r);
   try {
     const file = [];
     for (const f of foto) {
       const d = new Date(f.creata_il);
-      const nome = ('Commessa ' + r.commessa + ' - ' + nomeSub(r.sub_id) + ' - ' + iso(d) + ' ' + pad(d.getHours()) + '.' + pad(d.getMinutes())
+      const nome = ((r.fascia || 'Commessa ' + r.commessa + ' - ' + nomeSub(r.sub_id)) + ' - ' + iso(d) + ' ' + pad(d.getHours()) + '.' + pad(d.getMinutes())
         + ' (' + ((A.st.foto.get(chiave(r.sub_id, r.commessa)) || []).indexOf(f) + 1) + ').jpg').replace(/[\\/:*?"<>|]/g, ' ');
       file.push(new File([(await fileFoto(f)).blob], nome, { type: 'image/jpeg' }));
     }
@@ -2550,7 +2550,7 @@ async function salvaFotoFuori(r, foto) {
 }
 
 function apriGalleria(r, fatto) {
-  const A = archivioFoto();
+  const A = archivioFoto(r);
   const k = chiave(r.sub_id, r.commessa);
   const elenco = () => A.st.foto.get(k) || [];
   const dove = TELEFONO ? 'sul telefono' : 'sul computer';
@@ -2648,7 +2648,10 @@ const QL = {
 };
 
 // Quale archivio di foto si sta usando: quello di Qualita' o quello dell'Ispettore.
-function archivioFoto() {
+function archivioFoto(r) {
+  if (r && r.sub_id === 'art')          // un blocco di Qualita' X Art.: stesso bucket, altre funzioni
+    return { bucket: 'qualita', st: QL, registra: 'registra_foto_art', elimina: 'elimina_foto_art', max: 60, scrive: S.io === 'qualita',
+      spiega: 'Le foto restano finché l’articolo è in produzione: quando tutte le sue commesse sono chiuse alla fase 8 si cancellano da sole.' };
   if (S.io === 'qualita' || (S.io === 'admin' && S.vista === 'qualita'))
     return { bucket: 'qualita', st: QL, registra: 'registra_foto_qualita', elimina: 'elimina_foto_qualita', max: 60, scrive: S.io === 'qualita',
       spiega: 'Le foto restano finché la commessa non è chiusa del tutto alla fase 8 (confezionamento): poi si cancellano da sole.' };
@@ -2681,7 +2684,7 @@ async function caricaQualita(ids) {
   QL.note = new Map(note.map(n => [chiave(n.sub_id, n.commessa), n]));
   QL.foto = raggruppa(foto);
   QL.msg = raggruppa(msg);
-  contaNonLettiQ();
+  aggiornaNonLettiQ();
 }
 
 const nonLettiQ = k => (QL.msg.get(k) || []).filter(m => m.autore === altroQ() && !m.letto_il).length;
@@ -2694,8 +2697,10 @@ function contaNonLettiQ() {
 
 // Solo il numero dei messaggi da leggere (per il numerino sulla scheda).
 async function aggiornaNonLettiQ() {
-  const r = await facoltativo(sb.from('qualita_msg').select('id').eq('autore', altroQ()).is('letto_il', null));
-  QL.nonLetti = r.length;
+  const [c, a] = await Promise.all([
+    facoltativo(sb.from('qualita_msg').select('id').eq('autore', altroQ()).is('letto_il', null)),
+    facoltativo(sb.from('qualita_art_msg').select('id').eq('autore', altroQ()).is('letto_il', null))]);   // anche gli Articoli
+  QL.nonLetti = c.length + a.length;
   aggiornaContaQualita();
 }
 
@@ -2805,6 +2810,7 @@ function schedaQualita(r, ricarica) {
     bolletteRiconsegnate(r),
     h('div', { class: 'quaderno-box' },
       h('label', { for: idCampo }, ico('matita'), 'Le mie note'), area, stato),
+    tastoDiba(r) ? h('div', { class: 'piedino' }, tastoDiba(r)) : null,
     tastiQualita(r, ricarica));
 }
 
@@ -2822,8 +2828,9 @@ function tastiQualita(r, ricarica) {
     riempi(tGalleria, ico('galleria'), n ? 'Galleria (' + n + ')' : 'Galleria');
     riempi(tSlide, ico('play'), 'Slideshow');
     tSlide.disabled = !n;
-    tSlide.setAttribute('aria-label', 'Slideshow delle ' + n + ' foto della commessa ' + r.commessa);
-    riempi(tChat, ico('note'), (scrive ? 'Scrivi a ' + RESP_QUALITA : 'Rispondi') + (m ? ' (' + m + ')' : ''));
+    tSlide.setAttribute('aria-label', 'Slideshow delle ' + n + ' foto di ' + (r.codice || 'commessa ' + r.commessa));
+    riempi(tChat, ico(r.sub_id === 'art' && !m ? 'invia' : 'note'),
+      (scrive ? (r.sub_id === 'art' && !m ? 'Gira a ' : 'Scrivi a ') + RESP_QUALITA : 'Rispondi') + (m ? ' (' + m + ')' : ''));
     tGalleria.classList.toggle('con-foto', n > 0);
     tChat.classList.toggle('con-foto', nl > 0);
   }
@@ -2932,6 +2939,7 @@ function schedaRientro(r, ricarica) {
       numero('Rientrati', pz(r.rientrati) + ' pz', true),
       numero('Ancora dal Sub', pz(r.aperte) + ' pz'),
       numero('Commessa', r.lanciata ? pz(r.lanciata) + ' pz' : '—')),
+    tastoDiba(r) ? h('div', { class: 'piedino' }, tastoDiba(r)) : null,
     tastiQualita(r, ricarica));
 }
 
@@ -2961,6 +2969,7 @@ async function cercaRientri(testo, vaiA) {
 
 async function apriChatQualita(r, dopo) {
   const k = chiave(r.sub_id, r.commessa);
+  const art = r.sub_id === 'art';         // il blocco di un Articolo (Qualita' X Art.)
   const io = ioQ();
   const lista = h('div', { class: 'chat', 'aria-live': 'polite' });
   const testo = h('textarea', { class: 'nota chat-testo', rows: '2', maxlength: '4000', 'aria-label': 'Messaggio per ' + nomeAltroQ(),
@@ -2976,8 +2985,9 @@ async function apriChatQualita(r, dopo) {
     h('button', { class: 'tasto chiaro', type: 'button', 'aria-label': 'Scatta e manda una foto', onclick: () => scatto.click() }, ico('fotocamera'), 'Foto'),
     h('button', { class: 'tasto chiaro', type: 'button', 'aria-label': 'Manda foto già fatte', onclick: () => campo.click() }, ico('galleria'), TELEFONO ? 'Dal telefono' : 'Da file')] : null;
 
-  const f = finestra(h('h3', null, (io === 'qualita' ? 'Chat con ' + RESP_QUALITA : 'Qualità') + ' · ' + r.commessa),
-    h('p', { class: 'tenue', style: 'margin:0 0 12px' }, [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' '), r.descrizione].filter(Boolean).join(' · ')),
+  const f = finestra(h('h3', null, (io === 'qualita' ? 'Chat con ' + RESP_QUALITA : 'Qualità') + ' · ' + (art ? r.codice : r.commessa)),
+    h('p', { class: 'tenue', style: 'margin:0 0 12px' }, (art ? [r.nome_colore, r.descrizione, pz(r.qta) + ' pz in produzione']
+      : [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' '), r.descrizione]).filter(Boolean).join(' · ')),
     lista,
     h('div', { class: 'chat-scrivi' }, testo, h('div', { class: 'chat-tasti' }, tastiFoto, invia)));
   f.box.classList.add('larga', 'con-chat');
@@ -3004,20 +3014,26 @@ async function apriChatQualita(r, dopo) {
           : !m.testo ? h('span', { class: 'foto-persa' }, 'Foto non più disponibile') : null,
         m.testo ? h('div', { class: 'testo-nota' }, m.testo) : null);
     }) : h('div', { class: 'vuoto' }, h('b', null, 'Ancora nessun messaggio'),
-      io === 'qualita' ? 'Scrivi a ' + RESP_QUALITA + ' cosa hai visto su questa commessa: puoi mandare anche le foto.' : 'Qui compaiono i messaggi di Qualità su questa commessa.'));
+      io === 'qualita' ? (art ? 'Gira questo articolo a ' + RESP_QUALITA + ': vedrà il blocco con le tue note per lui e le foto. Puoi scrivergli anche qui.'
+        : 'Scrivi a ' + RESP_QUALITA + ' cosa hai visto su questa commessa: puoi mandare anche le foto.')
+        : (art ? 'Qui compaiono i messaggi di Qualità su questo articolo.' : 'Qui compaiono i messaggi di Qualità su questa commessa.')));
     inFondo();
   }
   async function segnaLetti() {
     if (!nonLettiQ(k)) return;
     try {
-      await q(sb.rpc('segna_letti_qualita', { p_sub: r.sub_id, p_commessa: r.commessa }));
+      await q(art ? sb.rpc('segna_letti_art', { p_art: Number(r.commessa) }) : sb.rpc('segna_letti_qualita', { p_sub: r.sub_id, p_commessa: r.commessa }));
       const ora = new Date().toISOString();
       for (const m of QL.msg.get(k) || []) if (m.autore === altroQ() && !m.letto_il) m.letto_il = ora;
       contaNonLettiQ();
+      aggiornaNonLettiQ();      // il numerino conta anche cio' che questa pagina non ha caricato
     } catch (e) { console.warn('segna letti', e); }
   }
   async function ricarica() {
-    const [ms, foto] = await Promise.all([
+    const [ms, foto] = await Promise.all(art ? [
+      q(sb.from('qualita_art_msg').select('*').eq('art_id', Number(r.commessa)).order('id')).then(x => x.map(perArt)),
+      q(sb.from('qualita_art_foto').select('*').eq('art_id', Number(r.commessa)).order('creata_il')).then(x => x.map(perArt)),
+    ] : [
       q(sb.from('qualita_msg').select('*').eq('sub_id', r.sub_id).eq('commessa', r.commessa).order('id')),
       q(sb.from('qualita_foto').select('*').eq('sub_id', r.sub_id).eq('commessa', r.commessa).order('creata_il')),
     ]);
@@ -3030,7 +3046,8 @@ async function apriChatQualita(r, dopo) {
     if (!t && !fotoId) return;
     invia.disabled = true;
     try {
-      const id = await q(sb.rpc('manda_msg_qualita', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: t || null, p_foto: fotoId || null }));
+      const id = await q(art ? sb.rpc('manda_msg_art', { p_art: Number(r.commessa), p_testo: t || null, p_foto: fotoId || null })
+        : sb.rpc('manda_msg_qualita', { p_sub: r.sub_id, p_commessa: r.commessa, p_testo: t || null, p_foto: fotoId || null }));
       if (!QL.msg.has(k)) QL.msg.set(k, []);
       QL.msg.get(k).push({ id, sub_id: r.sub_id, commessa: r.commessa, autore: io, testo: t || null, foto_id: fotoId || null, creato_il: new Date().toISOString(), letto_il: null });
       if (!fotoId) { testo.value = ''; }
@@ -3048,6 +3065,7 @@ async function apriChatQualita(r, dopo) {
     if (nuove.length && t) testo.value = '';
   }
 
+  if (art && io === 'qualita' && !(QL.msg.get(k) || []).length) testo.value = 'Ti giro questo articolo.';
   disegnaChat();
   ricarica().catch(e => gestisciErrore(e, 'chat'));
   timer = setInterval(() => { if (!document.hidden) ricarica().catch(() => {}); }, 20000);     // le risposte arrivano anche a chat aperta
@@ -3058,7 +3076,7 @@ async function apriChatQualita(r, dopo) {
    Si sfoglia con le frecce ‹ ›, con i tasti freccia (computer) o facendo
    scorrere il dito (tablet). Non va avanti da solo. */
 function apriSlideshow(r, inizio) {
-  const A = archivioFoto();
+  const A = archivioFoto(r);
   const foto = (A.st.foto.get(chiave(r.sub_id, r.commessa)) || []).slice();
   if (!foto.length) return toast('Su questa commessa non ci sono ancora foto.');
   let i = Math.min(Math.max(inizio || 0, 0), foto.length - 1);
@@ -3068,9 +3086,10 @@ function apriSlideshow(r, inizio) {
   const prima = h('button', { class: 'slide-freccia sx', type: 'button', 'aria-label': 'Foto prima', onclick: ev => { ev.stopPropagation(); vai(-1); } }, '‹');
   const dopo = h('button', { class: 'slide-freccia dx', type: 'button', 'aria-label': 'Foto dopo', onclick: ev => { ev.stopPropagation(); vai(1); } }, '›');
   const palco = h('div', { class: 'slide-palco' }, img);
-  const el = h('div', { class: 'slide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Foto della commessa ' + r.commessa },
+  const el = h('div', { class: 'slide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Foto di ' + (r.codice || 'commessa ' + r.commessa) },
     h('div', { class: 'slide-testa' },
-      h('div', null, h('b', null, 'Commessa ' + r.commessa), h('span', null, [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' ')].filter(Boolean).join(' · '))),
+      h('div', null, h('b', null, r.sub_id === 'art' ? 'Articolo ' + r.codice : 'Commessa ' + r.commessa),
+        h('span', null, (r.sub_id === 'art' ? [r.nome_colore, r.descrizione] : [nomeSub(r.sub_id), [r.modello, r.parte].filter(Boolean).join(' ')]).filter(Boolean).join(' · '))),
       conta,
       h('button', { class: 'slide-chiudi', type: 'button', 'aria-label': 'Chiudi lo slideshow', onclick: () => chiudi() }, '×')),
     h('div', { class: 'slide-centro' }, prima, palco, dopo),
@@ -3090,7 +3109,7 @@ function apriSlideshow(r, inizio) {
   function mostra() {
     const x = foto[i];
     img.removeAttribute('src');
-    img.alt = 'Foto ' + (i + 1) + ' di ' + foto.length + ' della commessa ' + r.commessa;
+    img.alt = 'Foto ' + (i + 1) + ' di ' + foto.length + ' di ' + (r.codice || 'commessa ' + r.commessa);
     fileFoto(x).then(c => { if (foto[i] === x) img.src = c.url; }, () => { if (foto[i] === x) dida.textContent = 'Foto non disponibile'; });
     conta.textContent = (i + 1) + ' di ' + foto.length;
     dida.textContent = 'Scattata ' + quandoParlato(x.creata_il);
@@ -3142,6 +3161,7 @@ function disegnaQualitaResp() {
       u ? h('div', { class: 'msg-anteprima ' + (u.autore === 'resp' ? 'mio' : 'suo') },
         h('div', { class: 'quando' }, (u.autore === 'resp' ? 'Tu' : 'Qualità') + ' · ' + quandoParlato(u.creato_il)),
         h('div', { class: 'testo-nota' }, u.testo || (u.foto_id ? '📷 Foto' : 'Foto non più disponibile'))) : null,
+      tastoDiba(r) ? h('div', { class: 'piedino' }, tastoDiba(r)) : null,
       tastiQualita(r, ricarica));
     return { el, testi: [r.commessa, r.modello, r.parte, r.descrizione, nomeSub(r.sub_id), ...(QL.msg.get(k(r)) || []).map(m => m.testo)] };
   });
@@ -3151,6 +3171,19 @@ function disegnaQualitaResp() {
     h('button', { class: 'chip', type: 'button', 'aria-pressed': String(!QL.soloDaLeggere), onclick: () => { QL.soloDaLeggere = false; disegnaQualitaResp(); } }, 'Tutte'),
     h('button', { class: 'chip', type: 'button', 'aria-pressed': String(QL.soloDaLeggere), onclick: () => { QL.soloDaLeggere = true; disegnaQualitaResp(); } },
       QL.nonLetti ? h('span', { class: 'pallino' }) : null, 'Da leggere'));
+  // Due sezioni: le commesse su cui Qualita' scrive e gli Articoli che gli gira (Qualita' X Art.)
+  const sezione = (val, testo) => h('button', { role: 'tab', type: 'button', 'aria-selected': String(QL.sezione === val),
+    onclick: () => { QL.sezione = val; disegnaQualitaResp(); } }, testo);
+  const sezioni = h('div', { class: 'sezioni-q', role: 'tablist' }, sezione('commesse', 'Commesse'), sezione('articoli', 'Articoli'));
+  if (QL.sezione === 'articoli') {
+    const dentro = h('div', null, h('div', { class: 'caricamento' }, h('span', { class: 'punto' })));
+    riempi(corpo(),
+      h('div', { class: 'saluto' }, svg(SOLE), h('div', null, h('h2', null, 'Qualità · Articoli'),
+        h('p', null, 'Gli articoli che Qualità ti ha girato, con le sue note e le foto.'))),
+      sezioni, filtri, dentro);
+    disegnaArtResp(dentro, () => vistaQualitaResp().catch(e => gestisciErrore(e, 'qualita'))).catch(e => gestisciErrore(e, 'qualita-art'));
+    return;
+  }
 
   riempi(corpo(),
     h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
@@ -3159,9 +3192,243 @@ function disegnaQualitaResp() {
         ? tutte.length + (tutte.length === 1 ? ' commessa' : ' commesse') + ' con messaggi o foto di Qualità'
           + (QL.nonLetti ? ' · ' + QL.nonLetti + (QL.nonLetti === 1 ? ' messaggio da leggere' : ' messaggi da leggere') : '')
         : 'Qui arrivano i messaggi e le foto di Qualità, commessa per commessa.'))),
+    sezioni,
     tutte.length ? [filtri, ricerca.casella, ricerca.trovate,
       elenco.length ? schede : vuoto('Tutto letto', 'Non ci sono messaggi nuovi di Qualità.'), ricerca.niente]
       : vuoto('Ancora nessun messaggio', 'Quando Qualità ti scrive su una commessa la trovi qui, con le foto.'));
+  ricerca.aggiorna();
+}
+
+/* --- Qualita' X Art. (database\qualita_art.sql) --------------------------------
+   Un blocco per Articolo (Modello + Parte + Colore) in produzione: foto e DiBa
+   dell'Articolo, Appunti (solo di Qualita'), Note per Simone, foto di Qualita'
+   (anche dal telefono) con galleria e slideshow, «Gira a Simone» (la chat).
+   Le foto e i messaggi stanno in QL.foto / QL.msg con la chiave 'art|<id>',
+   cosi' galleria, slideshow e chat sono le stesse delle commesse. */
+
+const QA = {
+  art: [],              // gli Articoli caricati
+  appunti: new Map(),   // id -> { testo, aggiornato_il }
+  nota: new Map(),      // id -> { testo, aggiornato_il }
+  filtro: '',           // '' tutti, 'segnati', 'girati'
+};
+QL.sezione = 'commesse';   // Simone: 'commesse' o 'articoli'
+
+const codiceArt = a => [a.modello, a.parte, a.colore || 'colore ?'].filter(Boolean).join(' ');
+const perArt = x => Object.assign({}, x, { sub_id: 'art', commessa: String(x.art_id) });
+
+// L'Articolo come «riga» per galleria, slideshow e chat.
+function rigaArt(a) {
+  return Object.assign({}, a, { sub_id: 'art', commessa: String(a.id), art: a, codice: codiceArt(a),
+    fascia: 'Articolo ' + codiceArt(a) });
+}
+
+async function caricaArt(soloId) {
+  let qa = sb.from('qualita_art').select('*');
+  qa = soloId ? qa.in('id', soloId.length ? soloId : [-1]) : qa.eq('in_produzione', true);
+  const [art, foto, msg, nota, appunti] = await Promise.all([
+    q(qa),
+    q(sb.from('qualita_art_foto').select('*').order('creata_il')),
+    q(sb.from('qualita_art_msg').select('*').order('id')),
+    q(sb.from('qualita_art_nota').select('*')),
+    S.io === 'qualita' ? q(sb.from('qualita_art_appunti').select('*')) : Promise.resolve([]),
+  ]);
+  QA.art = art;
+  QA.nota = new Map(nota.map(n => [n.art_id, n]));
+  QA.appunti = new Map(appunti.map(n => [n.art_id, n]));
+  for (const k of [...QL.foto.keys()]) if (k.startsWith('art|')) QL.foto.delete(k);
+  for (const k of [...QL.msg.keys()]) if (k.startsWith('art|')) QL.msg.delete(k);
+  for (const [k, v] of raggruppa(foto.map(perArt))) QL.foto.set(k, v);
+  for (const [k, v] of raggruppa(msg.map(perArt))) QL.msg.set(k, v);
+  return { msg };
+}
+
+// La foto dell'Articolo (ritagliata dalla DiBa): scaricata come file, come per le Cuciture.
+function fotoArticolo(a, classe) {
+  const box = h('div', { class: 'art-foto ' + (classe || '') });
+  if (!a.foto) { box.append(h('span', null, 'senza foto')); return box; }
+  const img = h('img', { alt: 'Foto dell’articolo ' + codiceArt(a) });
+  box.append(img);
+  const c = QL.file.get(a.foto);
+  if (c) img.src = c.url;
+  else sb.storage.from('qualita').download(a.foto).then(({ data }) => {
+    if (!data) return img.replaceWith(h('span', null, 'senza foto'));
+    const url = URL.createObjectURL(data);
+    QL.file.set(a.foto, { blob: data, url });
+    img.src = url;
+  }, () => img.replaceWith(h('span', null, 'senza foto')));
+  return box;
+}
+
+async function apriDibaArt(a) {
+  const { data, error } = await sb.storage.from('qualita').createSignedUrl(a.diba, 120);
+  if (error || !data) return toast('Distinta non disponibile.');
+  window.open(data.signedUrl, '_blank', 'noopener');
+}
+
+function tastoDiba(r) {
+  if (!MOSTRA_DIBA) return null;
+  if (r.sub_id === 'art') return r.art.diba ? h('button', { class: 'diba', type: 'button', onclick: () => apriDibaArt(r.art) }, ico('documento'), 'Distinta base') : null;
+  return r.diba ? h('button', { class: 'diba', type: 'button', onclick: () => apriDiba(r) }, ico('documento'), 'Distinta base') : null;
+}
+
+async function vistaQArt() {
+  await caricaArt();
+  disegnaQArt();
+}
+
+function segnatoArt(a) {
+  const k = chiave('art', String(a.id));
+  return QA.appunti.has(a.id) || QA.nota.has(a.id) || (QL.foto.get(k) || []).length > 0;
+}
+const giratoArt = a => (QL.msg.get(chiave('art', String(a.id))) || []).length > 0;
+
+function disegnaQArt() {
+  const ricarica = () => vistaQArt().catch(e => gestisciErrore(e, 'qualita-art'));
+  const k = a => chiave('art', String(a.id));
+  const prima = a => (a.commesse || []).map(x => x.scad).filter(Boolean).sort()[0] || '9999';
+  const tutte = QA.art.slice().sort((a, b) => (nonLettiQ(k(b)) > 0) - (nonLettiQ(k(a)) > 0) || prima(a).localeCompare(prima(b)) || a.chiave.localeCompare(b.chiave));
+  const elenco = QA.filtro === 'segnati' ? tutte.filter(segnatoArt) : QA.filtro === 'girati' ? tutte.filter(giratoArt) : tutte;
+  const voci = elenco.map(a => ({ el: schedaArt(a, ricarica),
+    get testi() { return [codiceArt(a), a.nome_colore, a.descrizione, (a.commesse || []).map(x => x.c + ' ' + (x.sub || '')).join(' '),
+      (QA.appunti.get(a.id) || {}).testo, (QA.nota.get(a.id) || {}).testo]; } }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+  const chip = (val, testo, icona) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(QA.filtro === val),
+    onclick: () => { QA.filtro = val; disegnaQArt(); } }, icona ? ico(icona) : null, testo);
+  const nl = tutte.reduce((t, a) => t + nonLettiQ(k(a)), 0);
+  riempi(corpo(),
+    h('div', { class: 'saluto' }, svg(SOLE), h('div', null,
+      h('h2', null, 'Qualità per articolo'),
+      h('p', null, tutte.length + (tutte.length === 1 ? ' articolo' : ' articoli') + ' in produzione · '
+        + pz(tutte.reduce((t, a) => t + (a.qta || 0), 0)) + ' pz' + (nl ? ' · ' + nl + (nl === 1 ? ' messaggio nuovo' : ' messaggi nuovi') : '')))),
+    h('div', { class: 'filtri' }, chip('', 'Tutti'), chip('segnati', 'Con appunti, note o foto', 'matita'), chip('girati', 'Girati a ' + RESP_QUALITA, 'invia')),
+    elenco.length ? [ricerca.casella, ricerca.trovate, schede, ricerca.niente]
+      : vuoto(QA.filtro ? 'Niente qui' : 'Nessun articolo in produzione',
+          QA.filtro === 'girati' ? 'Non hai ancora girato articoli a ' + RESP_QUALITA + '.'
+            : QA.filtro ? 'Non hai ancora scritto né fotografato niente su questi articoli.'
+            : 'L’elenco si riempie da solo con le commesse del Carico, pochi minuti dopo ogni aggiornamento.'),
+    h('p', { class: 'nota-piccola' }, 'Un blocco per articolo (modello + parte + colore) con almeno una commessa nel Carico non ancora chiusa del tutto alla fase 8. '
+      + testoAggiornato() + '.'));
+  ricerca.aggiorna();
+}
+
+// Una casella di testo che si salva da sola (Appunti o Note per Simone).
+function casellaArt(a, tipo) {
+  const mappa = tipo === 'appunti' ? QA.appunti : QA.nota;
+  const n0 = mappa.get(a.id);
+  const stato = h('div', { class: 'stato-invio' });
+  const mostra = fase => {
+    const n = mappa.get(a.id);
+    stato.className = 'stato-invio';
+    if (fase === 'salvo') riempi(stato, 'Salvataggio…');
+    else if (fase === 'errore') { stato.classList.add('da-inviare'); riempi(stato, ico('attenzione'), 'Non salvata: controlla la connessione e ritocca il testo'); }
+    else if (n && n.aggiornato_il) { stato.classList.add('inviata'); riempi(stato, ico('fatto'), 'Salvata ' + quandoParlato(n.aggiornato_il)); }
+    else riempi(stato);
+  };
+  mostra();
+  const id = 'art-' + tipo + '-' + a.id, kk = 'art|' + tipo + '|' + a.id;
+  const cresci = () => { area.style.height = 'auto'; area.style.height = (area.scrollHeight + 4) + 'px'; };
+  const salva = attesa => {
+    clearTimeout(_attese.get(kk));
+    mostra('salvo');
+    const t = setTimeout(async () => {
+      try {
+        const ora = await q(sb.rpc('salva_nota_art', { p_art: a.id, p_tipo: tipo, p_testo: area.value }));
+        if (area.value.trim()) mappa.set(a.id, { art_id: a.id, testo: area.value.trim(), aggiornato_il: ora || new Date().toISOString() });
+        else mappa.delete(a.id);
+        if (_attese.get(kk) === t) { _attese.delete(kk); mostra('fatto'); }
+      } catch (e) {
+        if (_attese.get(kk) === t) { _attese.delete(kk); mostra('errore'); }
+        gestisciErrore(e, 'nota-art');
+      }
+    }, attesa);
+    _attese.set(kk, t);
+  };
+  const area = h('textarea', { class: 'nota quaderno', rows: '3', maxlength: '4000', id, value: n0 ? n0.testo : '',
+    placeholder: tipo === 'appunti' ? 'I tuoi appunti su questo articolo: non li vede nessun altro…' : 'Cosa deve sapere ' + RESP_QUALITA + ' su questo articolo…',
+    oninput: () => { cresci(); salva(700); }, onblur: () => { if (_attese.has(kk)) salva(0); } });
+  if (n0) requestAnimationFrame(cresci);
+  return h('div', { class: 'quaderno-box' + (tipo === 'nota' ? ' per-simone' : '') },
+    h('label', { for: id }, ico(tipo === 'appunti' ? 'matita' : 'invia'), tipo === 'appunti' ? 'Appunti (solo per te)' : 'Note per ' + RESP_QUALITA),
+    area, stato);
+}
+
+function commesseArt(a) {
+  const lista = a.commesse || [];
+  const riga = x => h('li', null, h('span', { class: 'cod' }, x.c), h('span', null, pz(x.q) + ' pz'),
+    h('span', { class: 'tenue' }, [x.scad ? 'scad. ' + fmtData(x.scad) : null, x.sub || null].filter(Boolean).join(' · ')));
+  if (lista.length <= 3) return h('ul', { class: 'art-commesse' }, lista.map(riga));
+  return h('details', { class: 'art-commesse-tutte' },
+    h('summary', null, lista.length + ' commesse'), h('ul', { class: 'art-commesse' }, lista.map(riga)));
+}
+
+function testaArt(a, etichette) {
+  return h('div', { class: 'capo art-capo' },
+    fotoArticolo(a),
+    h('div', { class: 'art-nome' },
+      h('span', { class: 'cod' }, codiceArt(a)),
+      h('p', { class: 'cosa' }, [a.nome_colore, a.descrizione].filter(Boolean).join(' · ') || '—'),
+      etichette.length ? h('div', { class: 'etichette' }, etichette) : null));
+}
+
+function schedaArt(a, ricarica) {
+  const r = rigaArt(a);
+  const k = chiave('art', String(a.id));
+  const nl = nonLettiQ(k);
+  const prima = (a.commesse || []).map(x => x.scad).filter(Boolean).sort()[0];
+  return h('article', { class: 'scheda art' + (nl ? ' nuova' : '') },
+    testaArt(a, [nl ? h('span', { class: 'etichetta nuova' }, nl === 1 ? 'Messaggio nuovo' : nl + ' messaggi nuovi') : null,
+      giratoArt(a) ? h('span', { class: 'etichetta verde' }, 'Girato a ' + RESP_QUALITA) : null].filter(Boolean)),
+    h('div', { class: 'numeri' },
+      numero('In produzione', pz(a.qta) + ' pz', true),
+      numero('Commesse', String((a.commesse || []).length)),
+      numero('Prima scadenza', prima ? fmtData(prima) : '—')),
+    commesseArt(a),
+    tastoDiba(r) ? h('div', { class: 'piedino' }, tastoDiba(r)) : null,
+    casellaArt(a, 'appunti'),
+    casellaArt(a, 'nota'),
+    tastiQualita(r, ricarica));
+}
+
+/* Simone: gli Articoli che Qualita' gli ha girato, con le sue Note per Simone. */
+function schedaArtResp(a, ricarica) {
+  const r = rigaArt(a);
+  const k = chiave('art', String(a.id));
+  const nl = nonLettiQ(k), ms = QL.msg.get(k) || [], u = ms[ms.length - 1];
+  const nota = QA.nota.get(a.id);
+  return h('article', { class: 'scheda art' + (nl ? ' nuova' : '') },
+    testaArt(a, [nl ? h('span', { class: 'etichetta nuova' }, nl === 1 ? 'Da leggere' : nl + ' da leggere') : null,
+      a.in_produzione ? null : h('span', { class: 'etichetta' }, 'Uscito di produzione')].filter(Boolean)),
+    h('div', { class: 'numeri' },
+      numero('In produzione', pz(a.qta) + ' pz', a.in_produzione),
+      numero('Commesse', String((a.commesse || []).length)),
+      numero('Foto', String((QL.foto.get(k) || []).length))),
+    commesseArt(a),
+    tastoDiba(r) ? h('div', { class: 'piedino' }, tastoDiba(r)) : null,
+    h('div', { class: 'quaderno-box per-simone' }, h('label', null, ico('invia'), 'Note di Qualità'),
+      h('div', { class: 'testo-nota quaderno-letto' }, nota ? nota.testo : 'Nessuna nota.'),
+      nota ? h('span', { class: 'chi-quando' }, 'Scritte ' + quandoParlato(nota.aggiornato_il)) : null),
+    u ? h('div', { class: 'msg-anteprima ' + (u.autore === 'resp' ? 'mio' : 'suo') },
+      h('div', { class: 'quando' }, (u.autore === 'resp' ? 'Tu' : 'Qualità') + ' · ' + quandoParlato(u.creato_il)),
+      h('div', { class: 'testo-nota' }, u.testo || (u.foto_id ? '📷 Foto' : 'Foto non più disponibile'))) : null,
+    tastiQualita(r, ricarica));
+}
+
+async function disegnaArtResp(dentro, ricarica) {
+  const { msg } = await caricaArt([...new Set((await q(sb.from('qualita_art_msg').select('art_id'))).map(m => m.art_id))]);
+  const k = a => chiave('art', String(a.id));
+  const ultimo = a => { const ms = QL.msg.get(k(a)) || []; return ms.length ? ms[ms.length - 1].creato_il : ''; };
+  const tutte = QA.art.slice().sort((a, b) => (nonLettiQ(k(b)) > 0) - (nonLettiQ(k(a)) > 0) || ultimo(b).localeCompare(ultimo(a)));
+  const elenco = QL.soloDaLeggere ? tutte.filter(a => nonLettiQ(k(a))) : tutte;
+  const voci = elenco.map(a => ({ el: schedaArtResp(a, ricarica),
+    testi: [codiceArt(a), a.nome_colore, a.descrizione, (a.commesse || []).map(x => x.c).join(' '), (QA.nota.get(a.id) || {}).testo,
+      ...(QL.msg.get(k(a)) || []).map(m => m.testo)] }));
+  const schede = h('div', { class: 'elenco-schede' }, voci.map(v => v.el));
+  const ricerca = ricercaSu(voci, schede);
+  riempi(dentro, msg.length ? [ricerca.casella, ricerca.trovate,
+      elenco.length ? schede : vuoto('Tutto letto', 'Non ci sono messaggi nuovi sugli articoli.'), ricerca.niente]
+    : vuoto('Ancora nessun articolo', 'Quando Qualità ti gira un articolo lo trovi qui, con le sue note e le foto.'));
   ricerca.aggiorna();
 }
 
@@ -3569,7 +3836,7 @@ async function controlloPeriodico() {
     if (S.io === 'qualita' || S.vista === 'qualita') {
       const prima = QL.nonLetti;
       await aggiornaNonLettiQ();
-      const ql = { qcommesse: vistaQCommesse, qrientri: vistaQRientri, qualita: vistaQualitaResp }[S.vista];
+      const ql = { qcommesse: vistaQCommesse, qart: vistaQArt, qrientri: vistaQRientri, qualita: vistaQualitaResp }[S.vista];
       if (ql) return (cambiati || QL.nonLetti !== prima) ? ql() : undefined;
       if (S.io === 'qualita') return;
     }

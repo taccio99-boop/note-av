@@ -421,6 +421,8 @@ async function controllaSessione() {
 
 async function dopoAccesso(chi) {
   S.chi = chi; S.io = chi.ruolo;
+  // la Titolare ha la sua pagina (titolare.js): Controllo PDC, sola lettura, solo password
+  if (S.io === 'titolare') { registraDispositivo(); return window.avviaTitolare(sb).catch(e => gestisciErrore(e, 'titolare')); }
   // chiede al browser di non cancellare i dati salvati (sessione compresa) quando manca spazio
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 

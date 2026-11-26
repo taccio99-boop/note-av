@@ -109,8 +109,9 @@ body.titolare.tit-scuro { background:#14120F; }
 #tit .nome b{font-weight:600;display:block;font-size:14.5px}
 #tit .nome span{color:var(--t-muted);font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #tit .tag{display:inline-block;font-size:11px;border-radius:6px;padding:1px 6px;margin-left:6px;font-weight:600;vertical-align:1px}
-#tit .tag.chiara{background:var(--t-cuoio-chiaro);color:var(--t-cuoio)}
-#tit .tag.forz{background:var(--t-rosso-bg);color:var(--t-rosso)}
+#tit .nome .tag{display:inline-block;white-space:nowrap;font-size:11px;overflow:visible}
+#tit .nome .tag.chiara,#tit .tag.chiara{background:var(--t-cuoio-chiaro);color:var(--t-cuoio)}
+#tit .nome .tag.forz,#tit .tag.forz{background:var(--t-rosso-bg);color:var(--t-rosso)}
 #tit .cg{text-align:right;font-size:14px;color:var(--t-ink2);font-variant-numeric:tabular-nums}
 #tit .cg.zero,#tit .cg.fut{color:var(--t-linea2)}
 #tit .cg.oggi{font-weight:600;color:var(--t-ink)}

@@ -110,7 +110,7 @@ function testata() {
       <button class="tondo" data-tema="1" title="Chiaro / scuro" aria-label="Chiaro o scuro">◐</button>
       <button class="tondo" data-esci="1">Esci</button></div>
   </header>
-  <nav class="schede" role="tablist">${[['settimana', 'Settimana', W.righe.length], ['collaudato', 'Collaudato', W.giacenza.filter(x => x.giacenza > 0).length], ['sub', 'Sub', null], ['rientri', 'Rientri', null]]
+  <nav class="schede" role="tablist">${[['settimana', 'Settimana', W.righe.length], ['collaudato', 'Collaudato', oggiColl().giacenza.filter(x => x.giacenza > 0).length], ['sub', 'Sub', null], ['rientri', 'Rientri', null]]
     .map(([k, n, c]) => `<button role="tab" aria-selected="${S.scheda === k}" data-s="${k}">${svg(ICO[k])}${n}${c ? `<span class="n">${c}</span>` : ''}</button>`).join('')}</nav>`;
 }
 function saluto() { const h = new Date().getHours(); return h < 13 ? 'Buongiorno' : h < 18 ? 'Buon pomeriggio' : 'Buonasera'; }
@@ -252,15 +252,18 @@ function storicoHTML() {
   <div class="card" style="padding:6px 8px"><table class="lista storico"><thead><tr><th>Settimana</th><th class="num nasc">Piano</th><th class="num">Spedito</th><th>Avanzamento</th><th class="nasc">Lun → Ven</th><th class="nasc">Esito</th></tr></thead><tbody>${righe}</tbody></table></div>`;
 }
 
+// Il collaudato e' sempre quello di oggi (l'ultima settimana calcolata), qualunque settimana si stia guardando.
+function oggiColl() { return prepara(D.settimane[D.settimane.length - 1]); }
 function vistaCollaudato() {
+  const W = oggiColl();
   const G = W.giacenza.filter(g => g.giacenza > 0).sort((a, b) => b.giacenza - a.giacenza);
   const tot = G.reduce((a, g) => a + g.giacenza, 0), rev = W.revisione.reduce((a, r) => a + r.pezzi, 0);
   const ver = W.giacenza.filter(g => g.eccedenza > 0);
   const q = S.q.toLowerCase(), F = G.filter(g => !q || (g.commessa + ' ' + g.articolo).toLowerCase().includes(q));
-  const al = W.chiusa ? 'al venerdì ' + dd(W.giorni[4]) : 'a oggi';
+  const al = 'aggiornato ' + new Date(W.aggiornato).toLocaleString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   return `
   <section class="kpi">
-    <div class="k accento"><div class="l">Collaudato pronto</div><div class="v">${fmt(tot)}<small>pz</small></div><div class="s">conformi non ancora spediti, ${al}</div></div>
+    <div class="k accento"><div class="l">Collaudato pronto</div><div class="v">${fmt(tot)}<small>pz</small></div><div class="s">conformi non ancora spediti · ${al}</div></div>
     <div class="k"><div class="l">Commesse</div><div class="v">${G.length}</div><div class="s">con pezzi in giacenza</div></div>
     <div class="k"><div class="l">In revisione</div><div class="v">${fmt(rev)}<small>pz</small></div><div class="s">da ripresentare a Gucci</div></div>
     <div class="k"><div class="l">Da verificare</div><div class="v">${ver.length}</div><div class="s">spediti più dei collaudati</div></div>

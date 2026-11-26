@@ -146,11 +146,11 @@ function vistaSettimana() {
   const modT = W.modifiche.reduce((a, m) => a + (m.dopo_T - m.prima_T), 0);
   return `
   <section class="kpi">
-    <div class="k"><div class="l">Pianificato</div><div class="v">${fmt(T)}<small>pz</small></div><div class="s">colonna della settimana nel PDC</div></div>
-    <div class="k accento"><div class="l">Spedito</div><div class="v">${pct(sp, T)}%<small>${fmt(sp)} pz</small></div><div class="s">${W.chiusa ? 'a fine settimana' : sp >= att ? 'in linea con l\'obiettivo' : 'sotto l\'obiettivo di oggi'}</div></div>
-    <div class="k"><div class="l">Coperto</div><div class="v">${pct(cop, T)}%<small>${fmt(cop)} pz</small></div><div class="s">spedito + collaudato pronto</div></div>
-    ${W.chiusa ? `<div class="k"><div class="l">Esito</div><div class="v">${pct(sp, T)}%</div><div class="s">${fmt(Math.max(0, T - sp))} pz rimasti da spedire</div></div>`
-      : `<div class="k"><div class="l">Obiettivo di oggi</div><div class="v">${Math.round(obiettivoOggi * 100)}%<small>${fmt(att)} pz</small></div><div class="s">20% del piano per ogni giorno</div></div>`}
+    <div class="k"><div class="l">Pianificato</div><div class="v">${fmt(T)}<small>pz</small></div><div class="s">colonna della settimana nel PDC</div><div class="spiega">Il 100% della settimana: i pezzi della colonna gialla del PDC che hai mandato (solo le righe con quantità).</div></div>
+    <div class="k accento"><div class="l">Spedito</div><div class="v">${pct(sp, T)}%<small>${fmt(sp)} pz</small></div><div class="s">${W.chiusa ? 'a fine settimana' : sp >= att ? 'in linea con l\'obiettivo' : 'sotto l\'obiettivo di oggi'}</div><div class="spiega">Prodotto finito già partito verso Gucci, contato dai DDT di GEA (data del DDT). Esclusi campioni Artlab e lavorazioni esterne.</div></div>
+    <div class="k"><div class="l">Coperto</div><div class="v">${pct(cop, T)}%<small>${fmt(cop)} pz</small></div><div class="s">spedito + collaudato pronto</div><div class="spiega">Quanto del piano è già al sicuro: lo spedito più i pezzi collaudati conformi in attesa di partire, per le commesse del PDC.</div></div>
+    ${W.chiusa ? `<div class="k"><div class="l">Esito</div><div class="v">${pct(sp, T)}%</div><div class="s">${fmt(Math.max(0, T - sp))} pz rimasti da spedire</div><div class="spiega">Lo spedito finale della settimana rispetto al piano.</div></div>`
+      : `<div class="k"><div class="l">Obiettivo di oggi</div><div class="v">${Math.round(obiettivoOggi * 100)}%<small>${fmt(att)} pz</small></div><div class="s">20% del piano per ogni giorno</div><div class="spiega">Dove dovremmo essere oggi per chiudere al 100%: ogni giorno lavorativo vale il 20% del piano. Se lo spedito è sotto, siamo indietro.</div></div>`}
   </section>
   ${fonteHTML(W)}
   ${ritmoHTML(W, 'Il ritmo della settimana')}
@@ -263,10 +263,10 @@ function vistaCollaudato() {
   const al = 'aggiornato ' + new Date(W.aggiornato).toLocaleString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   return `
   <section class="kpi">
-    <div class="k accento"><div class="l">Collaudato pronto</div><div class="v">${fmt(tot)}<small>pz</small></div><div class="s">conformi non ancora spediti · ${al}</div></div>
-    <div class="k"><div class="l">Commesse</div><div class="v">${G.length}</div><div class="s">con pezzi in giacenza</div></div>
-    <div class="k"><div class="l">In revisione</div><div class="v">${fmt(rev)}<small>pz</small></div><div class="s">da ripresentare a Gucci</div></div>
-    <div class="k"><div class="l">Da verificare</div><div class="v">${ver.length}</div><div class="s">spediti più dei collaudati</div></div>
+    <div class="k accento"><div class="l">Collaudato pronto</div><div class="v">${fmt(tot)}<small>pz</small></div><div class="s">conformi non ancora spediti · ${al}</div><div class="spiega">Pezzi dati conformi nei verbali di collaudo Gucci dall'11/11, meno quelli già spediti (DDT di GEA; per l'11-13/11 la stampa dello spedito). Mai sotto zero.</div></div>
+    <div class="k"><div class="l">Commesse</div><div class="v">${G.length}</div><div class="s">con pezzi in giacenza</div><div class="spiega">Le commesse che hanno almeno un pezzo collaudato pronto a partire.</div></div>
+    <div class="k"><div class="l">In revisione</div><div class="v">${fmt(rev)}<small>pz</small></div><div class="s">da ripresentare a Gucci</div><div class="spiega">Pezzi segnati «da revisionare» nei verbali: tornano nel collaudato quando un nuovo verbale (V.rev.) li dà conformi.</div></div>
+    <div class="k"><div class="l">Da verificare</div><div class="v">${ver.length}</div><div class="s">spediti più dei collaudati</div><div class="spiega">Righe dove risultano spediti più pezzi di quelli collaudati dall'11/11: di solito pezzi collaudati prima di quella data.</div></div>
   </section>
   <div class="strumenti"><label class="cerca">${svg('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-3.5-3.5', 16)}<input id="tit-q" placeholder="Cerca commessa o articolo…" value="${esc(S.q)}"></label></div>
   <div class="card" style="padding:6px 8px"><table class="lista"><thead><tr><th>Commessa</th><th class="nasc">Articolo</th><th class="num nasc">Collaudato</th><th class="num nasc">Spedito</th><th class="num">In giacenza</th><th class="nasc">Ultimo verbale</th></tr></thead>
@@ -288,10 +288,10 @@ function vistaSub() {
   if (!subs.length) return `<div class="vuota"><h3>Nessun rientro dai Sub in questa settimana</h3></div>`;
   return `
   <section class="kpi">
-    <div class="k accento"><div class="l">Riconsegnato dai Sub</div><div class="v">${fmt(tot)}<small>pz</small></div><div class="s">fase 5 chiusa · Zeta Due come nell'Admin</div></div>
-    <div class="k"><div class="l">Sub attivi</div><div class="v">${subs.length}</div><div class="s">questa settimana</div></div>
-    <div class="k"><div class="l">Il più veloce</div><div class="v" style="font-size:26px">${esc(nomi[subs[0][0]])}</div><div class="s">${fmt(subs[0][2])} pz</div></div>
-    <div class="k"><div class="l">Commesse rientrate</div><div class="v">${new Set(W.sub.map(v => v.commessa)).size}</div><div class="s">almeno un pezzo</div></div>
+    <div class="k accento"><div class="l">Riconsegnato dai Sub</div><div class="v">${fmt(tot)}<small>pz</small></div><div class="s">fase 5 chiusa · Zeta Due come nell'Admin</div><div class="spiega">I pezzi che i Sub ci hanno riconsegnato questa settimana, presi da Note Av come nella pagina Admin.</div></div>
+    <div class="k"><div class="l">Sub attivi</div><div class="v">${subs.length}</div><div class="s">questa settimana</div><div class="spiega">I Sub che hanno riconsegnato almeno un pezzo.</div></div>
+    <div class="k"><div class="l">Il più veloce</div><div class="v" style="font-size:26px">${esc(nomi[subs[0][0]])}</div><div class="s">${fmt(subs[0][2])} pz</div><div class="spiega">Il Sub che ha riconsegnato più pezzi in settimana.</div></div>
+    <div class="k"><div class="l">Commesse rientrate</div><div class="v">${new Set(W.sub.map(v => v.commessa)).size}</div><div class="s">almeno un pezzo</div><div class="spiega">Le commesse diverse riconsegnate dai Sub in settimana.</div></div>
   </section>
   <div class="subtot">${subs.map(([s, , t]) => `<span class="pill cuoio">${esc(nomi[s])} · ${fmt(t)}</span>`).join('')}</div>
   <div class="griglia2">${subs.map(([s, c, t]) => `<div class="card"><h4>${esc(nomi[s])}</h4><div class="sub">${fmt(t)} pezzi riconsegnati</div>

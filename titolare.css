@@ -50,6 +50,7 @@ body.titolare.tit-scuro { background:#14120F; }
 #tit .k .v{font-size:34px;line-height:1.1;margin-top:8px}
 #tit .k .v small{font:500 15px var(--t-font);color:var(--t-muted);margin-left:6px;letter-spacing:0}
 #tit .k .s{font-size:13px;color:var(--t-ink2);margin-top:4px}
+#tit .k .spiega{font-size:12px;line-height:1.45;color:var(--t-muted);margin-top:10px;padding-top:10px;border-top:1px dashed var(--t-linea)}
 #tit .k.accento{background:linear-gradient(160deg,var(--t-carta),var(--t-cuoio-chiaro))}
 
 #tit .ritmo{background:var(--t-carta);border:1px solid var(--t-linea);border-radius:18px;padding:22px 24px 18px;box-shadow:var(--t-ombra);margin-bottom:22px}

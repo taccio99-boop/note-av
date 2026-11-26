@@ -422,30 +422,61 @@ function prepararePagina() {
   document.body.classList.add('titolare');
   try { const t = localStorage.getItem('tit-tema'); if (t) document.body.classList.add(t === 'scuro' ? 'tit-scuro' : 'tit-chiaro'); } catch (e) { /* niente */ }
   const app = document.getElementById('app');
-  app.innerHTML = '<div id="tit"></div>';
-  radice = document.getElementById('tit');
+  app.innerHTML = '<div id="tit"><div id="tit-pagina"></div></div>';
+  radice = document.getElementById('tit-pagina');
   radice.addEventListener('click', suClic);
   radice.addEventListener('change', e => { if (e.target.id === 'tit-causale') { S.causale = e.target.value || null; disegna(); } });
   radice.addEventListener('input', e => { if (e.target.id === 'tit-q') { S.q = e.target.value; S._focus = true; disegna(); S._focus = false; } });
 }
 
 /* Chiamata da app.js dopo l'accesso con ruolo «titolare». */
+/* Animazione d'ingresso: il controllo. Un foglio del PDC viene letto riga per riga,
+   ogni riga prende la sua spunta, sotto scorrono i passi del controllo; poi si apre la pagina. */
+function introControllo() {
+  const calmo = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const righe = [0, 1, 2, 3, 4].map(i => {
+    const y = 58 + i * 30, w = [118, 96, 132, 84, 110][i];
+    return `<g class="ri" style="--i:${i}"><rect class="bar" x="34" y="${y}" width="${w}" height="9" rx="4.5"/><rect class="num" x="176" y="${y}" width="26" height="9" rx="4.5"/>` +
+      `<path class="spunta" pathLength="1" d="M214 ${y + 4.5} l6 6 l11 -12"/></g>`;
+  }).join('');
+  const el = document.createElement('div');
+  el.className = 'tit-intro' + (calmo ? ' calmo' : '');
+  el.setAttribute('role', 'status');
+  el.innerHTML = `<div class="foglio"><svg viewBox="0 0 260 230" aria-hidden="true">
+      <rect class="carta" x="12" y="12" width="236" height="206" rx="16"/>
+      <rect class="testa" x="34" y="30" width="70" height="8" rx="4"/><rect class="testa2" x="196" y="30" width="30" height="8" rx="4"/>
+      ${righe}
+      <rect class="scan" x="22" y="50" width="216" height="24" rx="8"/>
+    </svg></div>
+    <div class="marca">Firenze Moda · Piani di consegna</div>
+    <div class="titolo">Controllo PDC</div>
+    <div class="passi"><span>Leggo il PDC della settimana</span><span>Confronto i DDT di GEA</span><span>Conto il collaudato</span><span>Tutto pronto</span></div>
+    <div class="avanz"><i></i></div>`;
+  document.getElementById('tit').append(el);
+  const minimo = new Promise(r => setTimeout(r, calmo ? 300 : 2600));
+  return {
+    chiudi: async () => { await minimo; el.classList.add('via'); setTimeout(() => el.remove(), 600); }
+  };
+}
+
 window.avviaTitolare = async function (sb) {
   client = sb;
   prepararePagina();
-  await ricarica();
-  disegna();
+  const intro = introControllo();
+  try { await ricarica(); } finally { disegna(); await intro.chiudi(); }
   await controllaAvvisi().catch(() => {});
   setInterval(() => controllaAvvisi().catch(() => {}), 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) controllaAvvisi().catch(() => {}); });
 };
 
 /* Prova senza Supabase (app\prova_titolare.html): dati e pop-up finti. */
-window.provaTitolare = function (dati, avvisi) {
+window.provaTitolare = async function (dati, avvisi) {
   prepararePagina();
+  const intro = introControllo();
   D = { settimane: dati };
   if (D.settimane.length) scegli(D.settimane.length - 1);
   disegna();
+  await intro.chiudi();
   if (avvisi && avvisi.length) { avvisiInCoda = avvisi; mostraPopup(avvisi[0]); }
 };
 })();

@@ -219,3 +219,39 @@ body.titolare.tit-scuro { background:#14120F; }
   #tit .lista{font-size:13px}
   #tit .lista .nasc{display:none}
 }
+
+/* ---------- animazione d'ingresso: il controllo ---------- */
+#tit .tit-intro{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  background:radial-gradient(ellipse 70% 55% at 50% 42%,var(--t-cuoio-chiaro),var(--t-bg) 70%);transition:opacity .55s ease,transform .55s ease}
+#tit .tit-intro.via{opacity:0;transform:scale(1.03);pointer-events:none}
+#tit .tit-intro .foglio{width:min(320px,72vw);filter:drop-shadow(0 18px 30px rgba(40,30,20,.16));animation:tit-entra .6s cubic-bezier(.2,.8,.2,1) both}
+#tit .tit-intro svg{display:block;width:100%;height:auto}
+#tit .tit-intro .carta{fill:var(--t-carta);stroke:var(--t-linea)}
+#tit .tit-intro .testa{fill:var(--t-cuoio)}
+#tit .tit-intro .testa2{fill:var(--t-linea2)}
+#tit .tit-intro .bar{fill:var(--t-linea2);transition:fill .3s}
+#tit .tit-intro .num{fill:var(--t-linea)}
+#tit .tit-intro .ri .bar{animation:tit-letta .35s calc(.45s + var(--i)*.34s) forwards}
+#tit .tit-intro .ri .num{animation:tit-num .35s calc(.5s + var(--i)*.34s) forwards}
+#tit .tit-intro .spunta{fill:none;stroke:var(--t-verde);stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;
+  animation:tit-spunta .32s calc(.62s + var(--i)*.34s) cubic-bezier(.3,.7,.3,1) forwards}
+#tit .tit-intro .scan{fill:var(--t-cuoio);opacity:.13;animation:tit-scan 1.7s .4s cubic-bezier(.45,.05,.35,1) forwards}
+#tit .tit-intro .marca{margin-top:18px;font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t-cuoio);font-weight:600;animation:tit-su .5s .15s both}
+#tit .tit-intro .titolo{font:700 26px/1.1 var(--t-titoli);letter-spacing:-.02em;color:var(--t-ink);animation:tit-su .5s .25s both}
+#tit .tit-intro .passi{position:relative;height:22px;width:280px;text-align:center;font-size:14px;color:var(--t-ink2);margin-top:4px}
+#tit .tit-intro .passi span{position:absolute;inset:0;opacity:0;animation:tit-passo .65s both}
+#tit .tit-intro .passi span:nth-child(1){animation-delay:.35s}
+#tit .tit-intro .passi span:nth-child(2){animation-delay:1s}
+#tit .tit-intro .passi span:nth-child(3){animation-delay:1.65s}
+#tit .tit-intro .passi span:nth-child(4){animation:tit-su .4s 2.3s both;color:var(--t-verde);font-weight:600}
+#tit .tit-intro .avanz{width:180px;height:3px;border-radius:3px;background:var(--t-linea);overflow:hidden;margin-top:10px}
+#tit .tit-intro .avanz i{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--t-cuoio),var(--t-verde));transform-origin:left;transform:scaleX(0);animation:tit-avanz 2.4s .2s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes tit-entra{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes tit-su{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes tit-letta{to{fill:var(--t-ink2)}}
+@keyframes tit-num{to{fill:var(--t-cuoio)}}
+@keyframes tit-spunta{to{stroke-dashoffset:0}}
+@keyframes tit-scan{0%{transform:translateY(0)}100%{transform:translateY(120px);opacity:0}}
+@keyframes tit-passo{0%{opacity:0;transform:translateY(6px)}20%,80%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-6px)}}
+@keyframes tit-avanz{to{transform:scaleX(1)}}
+#tit .tit-intro.calmo *{animation-duration:.01s!important;animation-delay:0s!important}
